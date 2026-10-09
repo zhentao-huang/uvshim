@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 # ==============================================================================
 # 1. 全场景完美兼容：获取当前脚本的【真实绝对目录】
@@ -8,8 +8,8 @@ get_script_dir() {
     if [ -n "$BASH_SOURCE" ]; then
         _source_path="$BASH_SOURCE"
     elif [ -n "$ZSH_EVAL_CONTEXT" ] && [ "$ZSH_EVAL_CONTEXT" = "toplevel" ]; then
-        # Zsh 在 source 时特殊处理
-        _source_path="${(%):-%x}"
+        # Zsh 在 source 时特殊处理（用 eval 包裹，避免非 zsh 的 sh 解析报错）
+        eval '_source_path=${(%):-%x}'
     else
         # 正常直接执行时兜底使用 $0
         _source_path="$0"
@@ -26,7 +26,7 @@ get_app_name() {
     if [ -n "$BASH_SOURCE" ]; then
         echo "${BASH_SOURCE##*/}"
     elif [ -n "$ZSH_EVAL_CONTEXT" ] && [ "$ZSH_EVAL_CONTEXT" = "toplevel" ]; then
-        _zsh_raw="${(%):-%x}"
+        eval '_zsh_raw=${(%):-%x}'
         echo "${_zsh_raw##*/}"
     else
         echo "${0##*/}"
@@ -61,8 +61,12 @@ TARGET_DIR="${1:-$HOME/.local/bin}"
 
 # 将路径转换为绝对路径，避免相对路径导致脚本内部定位失败
 if [ ! -d "$TARGET_DIR" ]; then
-    echo -e "\033[1;33m⚠️  提示: 目标安装目录 [ $TARGET_DIR ] 当前不存在。\033[0m"
-    read -p "是否需要自动创建该目录并继续安装？[y/N]: " CONFIRM
+    printf '\033[1;33m⚠️  提示: 目标安装目录 [ %s ] 当前不存在。\033[0m\n' "$TARGET_DIR"
+    # 优先从终端读取交互输入（兼容 curl ... | sh 的管道安装）；
+    # 若读不到终端（如 CI），则默认自动创建目录。
+    printf '是否需要自动创建该目录并继续安装？[y/N]: '
+    CONFIRM=""
+    read CONFIRM 2>/dev/null < /dev/tty || CONFIRM="y"
     case "$CONFIRM" in
         [yY]|[yY][eE][sS])
             echo "  📂 正在创建目录: $TARGET_DIR"
