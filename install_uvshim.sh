@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 
-# 1. 确定目标安装目录
-TARGET_DIR="${HOME}/.local/bin"
+# 1. 确定目标安装目录 (优先读取脚本参数，若无则默认使用 ~/.local/bin)
+TARGET_DIR="${1:-$HOME/.local/bin}"
+
+# 将路径转换为绝对路径，避免相对路径导致脚本内部定位失败
 mkdir -p "$TARGET_DIR"
+TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
 
 echo "🚀 开始在 $TARGET_DIR 中部署全局多平台兼容 uv 垫片（Shims）..."
 
@@ -57,36 +60,35 @@ EOF
     echo "  ✅ 已成功部署: $name"
 }
 
-# 3. 创建 pip 垫片
+# 3. 创建 pip 和 pip3 垫片 (升级为方案 B：动态绑定 python 版本，解决 macOS/Homebrew 冲突)
 create_pip_shim() {
-    local file_path="$TARGET_DIR/pip"
+    local name=$1
+    local file_path="$TARGET_DIR/$name"
 
     cat << 'EOF' > "$file_path"
 #!/bin/sh
 
+# 1. 获取当前脚本所在的目录
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
-REAL_UV="$SCRIPT_DIR/uv"
-if [ ! -x "$REAL_UV" ]; then
-    REAL_UV=$(command -v uv 2>/dev/null)
-fi
-
-if [ -z "$REAL_UV" ]; then
-    echo "❌ 错误: 未找到 uv 路径！" >&2
-    exit 1
-fi
-
-# 直接转发给超高速的 uv pip，完美自适应当前目录 pin 的 python 版本
-exec "$REAL_UV" pip "$@"
+# 2. 精确调用旁边已经打好「防死循环补丁」的 python 垫片
+# 通过 python -m pip 调用，完美继承目录 pin 的所有多版本切换逻辑，且不惧 Homebrew 干扰
+exec "$SCRIPT_DIR/python" -m pip "$@"
 EOF
 
     chmod +x "$file_path"
-    echo "  ✅ 已成功部署: pip"
+    echo "  ✅ 已成功部署: $name"
 }
 
 # 4. 执行生成逻辑
 create_python_shim "python"
 create_python_shim "python3"
-create_pip_shim
+create_pip_shim "pip"
+create_pip_shim "pip3"
 
-echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已成功在 $OS_TYPE 系统下部署就绪！"
+echo "=========================================================="
+echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！"
+echo "📂 安装路径: $TARGET_DIR"
+echo "💡 请确保该路径已加入到你的系统 PATH 环境变量最前列（如 ~/.zshrc 或 ~/.bashrc）"
+echo "   示例: export PATH=\"$TARGET_DIR:\$PATH\""
+echo "=========================================================="
