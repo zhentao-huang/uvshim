@@ -124,6 +124,7 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/install_u
 🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！
 📂 安装路径: /home/<user>/.local/bin
 ==========================================================
+💡 若 which python3 仍指向旧路径，zsh 请执行 rehash、bash 请执行 hash -r（或重开终端）。
 ```
 
 若路径检查未通过（安装目录未生效），则会改为输出警告并提示如何调整 `PATH`，此时不再显示上面的祝贺信息。
@@ -256,6 +257,12 @@ command -v uv   # 应能输出 uv 的路径
 **Q：`which python` 还是指向系统自带的 python？**
 
 A：垫片目录没有排在 `PATH` 前面。请检查 `~/.zshrc` / `~/.bashrc` 中的顺序，确保 `export PATH="<垫片目录>:$PATH"` 位于其他 Python 相关路径之前，并重新 `source`。
+
+**Q：安装后 `which python3`（或实际运行）仍指向 `/opt/homebrew/bin/python3` 等旧路径，但垫片明明已存在？**
+
+A：这是 shell 的**命令哈希缓存**（command hash）导致的，不是 `PATH` 顺序问题。`~/.local/bin` 本就在 `PATH` 中，但垫片是刚放进去的；shell 早已把 `python3` 缓存成旧路径，而向已存在于 `PATH` 的目录里新增文件不会触发重新扫描。执行 `rehash`（zsh）或 `hash -r`（bash），或直接新开一个终端即可。
+
+> 补充：bash 的 `which` 通常是外部程序、会直接扫描 `PATH`，所以它可能显示新路径，但**实际执行**仍会用缓存的旧命令；zsh 的 `which` 是内建、会读缓存，因此直接显示旧路径。两者都用上面的命令解决。
 
 **Q：会不会和系统里的 Python 打架，甚至删掉系统文件？**
 
