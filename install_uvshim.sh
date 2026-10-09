@@ -213,13 +213,13 @@ EOF
 # 在 PATH 中查找某个可执行文件，返回其第一个命中的目录（规范化为绝对路径）
 find_first_dir_in_path() {
     local name=$1
-    local old_ifs=$IFS d
-    IFS=':'
-    set -f
-    set -- $PATH
-    set +f
-    IFS=$old_ifs
-    for d in "$@"; do
+    local rest=$PATH d
+    # 手动按冒号切分：兼容 zsh 默认不对未加引号的变量做单词拆分的行为
+    while [ -n "$rest" ]; do
+        case "$rest" in
+            *:*) d=${rest%%:*}; rest=${rest#*:} ;;
+            *)   d=$rest; rest= ;;
+        esac
         [ -n "$d" ] || continue
         if [ -x "$d/$name" ]; then
             (cd "$d" 2>/dev/null && pwd)
@@ -232,16 +232,15 @@ find_first_dir_in_path() {
 # 检查安装目录是否在 PATH 中优先生效；否则以警告方式提示用户前置该目录
 check_path_priority() {
     local target=$1
-    local old_ifs=$IFS d idx target_index
-    IFS=':'
-    set -f
-    set -- $PATH
-    set +f
-    IFS=$old_ifs
-
+    local rest=$PATH d idx target_index
     idx=0
     target_index=-1
-    for d in "$@"; do
+    # 手动按冒号切分：兼容 zsh 默认不对未加引号的变量做单词拆分的行为
+    while [ -n "$rest" ]; do
+        case "$rest" in
+            *:*) d=${rest%%:*}; rest=${rest#*:} ;;
+            *)   d=$rest; rest= ;;
+        esac
         if [ -n "$d" ]; then
             local cd_dir
             cd_dir=$(cd "$d" 2>/dev/null && pwd) || cd_dir=$d
@@ -253,6 +252,7 @@ check_path_priority() {
         idx=$((idx + 1))
     done
 
+    # 只要这些命令都能优先解析到安装目录，垫片即已生效
     local problems="" cmd found
     for cmd in python python3 pip pip3; do
         found=$(find_first_dir_in_path "$cmd")
@@ -267,9 +267,9 @@ check_path_priority() {
         fi
     done
 
-    if [ "$target_index" = "0" ] && [ -z "$problems" ]; then
+    if [ -z "$problems" ]; then
         echo ""
-        echo "✅ 路径检查: 安装目录已排在 PATH 前面，python/python3/pip/pip3 均优先由本垫片接管。"
+        echo "✅ 路径检查: python/python3/pip/pip3 均优先由本垫片接管。"
         return 0
     fi
 
@@ -279,11 +279,9 @@ check_path_priority() {
     if [ "$target_index" -lt 0 ]; then
         echo "   该目录当前【未包含】在你的 PATH 中。"
     elif [ "$target_index" -gt 0 ]; then
-        echo "   该目录虽在 PATH 中，但【未排在前面】（前面还有 $target_index 个目录）。"
+        echo "   该目录虽在 PATH 中，但前面还有 $target_index 个目录抢先提供了同名命令。"
     fi
-    if [ -n "$problems" ]; then
-        echo "   以下命令未优先解析到安装目录:$problems"
-    fi
+    echo "   以下命令未优先解析到安装目录:$problems"
     echo ""
     echo "   请把它移到 PATH 前面，例如在 ~/.zshrc 或 ~/.bashrc 中设置:"
     printf '     export PATH="%s:$PATH"\n' "$target"

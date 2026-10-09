@@ -1,14 +1,15 @@
 #!/bin/sh
 
 # 在单个目录中识别并移除带有独家特征码的垫片。
-# （SHIM_NAMES / DELETED_COUNT 由 main 以 local 提供，依赖 shell 的动态作用域）
+# （DELETED_COUNT 由 main 以 local 提供，依赖 shell 的动态作用域）
 remove_shims_in_dir() {
     local dir=$1
     [ -d "$dir" ] || return
     local abs_dir
     abs_dir=$(cd "$dir" && pwd) || return
     local name file_path
-    for name in $SHIM_NAMES; do
+    # 直接列出文件名，避免依赖未加引号变量的单词拆分（zsh 默认不拆分）
+    for name in python python3 pip pip3 uvpin; do
         file_path="$abs_dir/$name"
 
         # 必须是常规文件且可读
@@ -29,8 +30,6 @@ remove_shims_in_dir() {
 # 也不会因 exit 而杀掉调用者的 shell。
 # ==============================================================================
 main() {
-    # 定义要清理的垫片文件名
-    local SHIM_NAMES="python python3 pip pip3 uvpin"
     local DELETED_COUNT=0
 
     echo "🔍 开始扫描系统环境与目标目录，寻找专属 uv 垫片..."
@@ -46,15 +45,13 @@ main() {
         remove_shims_in_dir "$ARG_DIR"
     fi
 
-    # 2. 拆分并解析全局 PATH（以冒号为分隔符逐个目录处理，关闭通配避免路径中含通配符）
-    local old_ifs=$IFS
-    IFS=':'
-    set -f
-    set -- $PATH
-    set +f
-    IFS=$old_ifs
-    local p
-    for p in "$@"; do
+    # 2. 解析全局 PATH（手动按冒号切分：兼容 zsh 默认不对未加引号的变量做单词拆分）
+    local rest=$PATH p
+    while [ -n "$rest" ]; do
+        case "$rest" in
+            *:*) p=${rest%%:*}; rest=${rest#*:} ;;
+            *)   p=$rest; rest= ;;
+        esac
         [ -n "$p" ] && remove_shims_in_dir "$p"
     done
 

@@ -117,7 +117,7 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/install_u
 ✅ 已成功部署: pip
 ✅ 已成功部署: pip3
 ✅ 已成功部署: uvpin
-✅ 路径检查: 安装目录已排在 PATH 前面，python/python3/pip/pip3 均优先由本垫片接管。
+✅ 路径检查: python/python3/pip/pip3 均优先由本垫片接管。
 ```
 
 ---
