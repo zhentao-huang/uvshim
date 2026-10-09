@@ -17,7 +17,6 @@
 - [工作原理](#工作原理)
 - [前置要求](#前置要求)
 - [安装](#安装)
-- [PATH 配置](#path-配置)
 - [使用方法](#使用方法)
   - [python / python3](#python--python3)
   - [pip / pip3](#pip--pip3)
@@ -32,17 +31,18 @@
 
 uv 是一套强大的 Python 工具，集项目管理、虚拟环境、包管理于一身，但截至目前（2026/10/09）仍**缺少全局的多版本 Python 管理能力**。
 
-pyenv 通过垫片（shims）让用户方便地切换各种 Python 版本；据说 uv 拒绝采用类似方案，因此社区里也出现了 `uv-python-shims` 这样的第三方项目，相对本项目可能更成熟，也欢迎大家选用。本项目采用了一种略有不同、但总体思路一致的实现。
+pyenv 通过垫片（shims）让用户方便地切换各种 Python 版本；uv 官方尚未提供该能力，因此社区里也出现了 `uv-python-shims` 这样的第三方项目，相对本项目可能更成熟，也欢迎大家选用。本项目采用了一种略有不同、但总体思路一致的实现。
 
 实现垫片看似不难，实际却有几个坑需要处理：
 
 - **跨系统一致性**：主要是 Linux 与 macOS，要做到行为相同的垫片有不小的挑战。
 - **兼容系统自带 Python**：系统通常自带 Python，用户也可能自行安装，要把这些全部纳入 uv 的版本管理并不容易。
 - **venv 与全局并存**：项目可能使用虚拟环境，也可能直接用全局，垫片需要同时兼顾。
-- **垫片放在哪里**：`/usr/bin`、`/usr/local/bin` 还是用户目录？使用者应当拥有最大的自主选择权。
-- **pip 的取舍**：原生 pip 稳定但性能略低，能否改用性能更好的 `uv pip` 代替？参见[两种 pip 方案如何选择](#两种-pip-方案如何选择)。
+- **垫片放在哪里**：`/usr/bin`、`/usr/local/bin` 还是用户目录？使用者应当拥有充分的自主选择权。
+- **pip 与 python 的绑定问题**：原生 pip 作为独立程序，配置不当，很容易和 python 主程序脱节，处理起来很麻烦。
+  - 另外稳定但性能略低，能否改用性能更好的 `uv pip` 代替？参见[两种 pip 方案如何选择](#两种-pip-方案如何选择)。
 
-本项目以**简单、足够强**的功能解决了上述问题，欢迎交流提问。
+本项目以**简单、够用**的功能解决了上述问题，欢迎交流提问。
 
 ## 工作原理
 
@@ -66,7 +66,7 @@ fi
 PATH="$CLEANED_PATH" exec "$REAL_UV" run python "$@"
 ```
 
-因此，只要垫片目录排在 `PATH` 最前面，你平常写的 `python xxx.py`、`pip install xxx` 就会自动走 uv。
+因此，只要垫片目录排在 `PATH` 前面，你平常写的 `python xxx.py`、`pip install xxx` 就会自动走 uv。
 
 ---
 
@@ -74,17 +74,27 @@ PATH="$CLEANED_PATH" exec "$REAL_UV" run python "$@"
 
 - **已安装 uv**，并确保 `uv` 可以在命令行中调用（`command -v uv`）。
   - 官方安装方式：<https://docs.astral.sh/uv/getting-started/installation/>
-- Shell：`bash` 或 `zsh` 均可。
-- 系统：Linux / macOS（脚本会自动区分 GNU `sed` 与 BSD `sed`）。
+- Shell：任意
+- 系统：Linux / macOS
 
 ---
 
 ## 安装
 
-两个安装脚本二选一，用法完全一致：
+### 一键安装（从 GitHub）
+
+默认安装到 `~/.local/bin`：
 
 ```sh
-# 方案 A：pip 走原生 python -m pip（兼容性最好）
+curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/install_uvshim.sh | sh
+```
+
+### 本地脚本安装
+
+克隆或下载本仓库后，两个安装脚本二选一，用法完全一致：
+
+```sh
+# 方案 A：pip 走原生 python -m pip（兼容性更佳）
 ./install_uvshim.sh [目标目录]
 
 # 方案 B：pip 直接转发给 uv pip（速度更快）
@@ -107,33 +117,7 @@ PATH="$CLEANED_PATH" exec "$REAL_UV" run python "$@"
 ✅ 已成功部署: pip
 ✅ 已成功部署: pip3
 ✅ 已成功部署: uvpin
-```
-
-> 建议把 `uv` 本身也放到同一个目录（或确保它在 `PATH` 中），这样 `python` 垫片能直接定位到它。
-
----
-
-## PATH 配置
-
-安装脚本**不会**自动修改你的 shell 配置，需要手动把目标目录加到 `PATH` **最前面**。
-
-以默认目录 `~/.local/bin` 为例，在 `~/.zshrc` 或 `~/.bashrc` 中追加：
-
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-然后重新加载：
-
-```sh
-source ~/.zshrc   # 或 source ~/.bashrc
-```
-
-验证是否生效：
-
-```sh
-which python
-# 期望输出：/home/<user>/.local/bin/python
+✅ 路径检查: 安装目录已排在 PATH 前面，python/python3/pip/pip3 均优先由本垫片接管。
 ```
 
 ---
@@ -166,14 +150,6 @@ pip3 install "flask>=3.0"
 ```
 
 `pip` 会自动绑定到当前上下文里 `python` 所对应的版本，因此你不需要手动写 `python -m pip`。
-
-> 注意：垫片模式下**不建议**在当前目录里安装到系统/uv 全局环境。若要在项目里隔离依赖，请先创建虚拟环境：
->
-> ```sh
-> uv venv
-> source .venv/bin/activate
-> pip install requests      # 进入 venv 后即安装到该 venv
-> ```
 
 ### uvpin
 
@@ -241,6 +217,12 @@ uvpin
 ./remove_uvshim.sh ~/.local/bin
 ```
 
+也可直接从 GitHub 运行（自动扫描 PATH）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/remove_uvshim.sh | sh
+```
+
 脚本通过检测每个文件里的独家特征码 `[UV-SHIMS-MARKER]` 来精准识别属于自己的垫片，**不会误删**系统原生的 `python` / `pip` 等文件。
 
 输出示例：
@@ -257,7 +239,7 @@ uvpin
 
 **Q：`python` 执行后报错“未在系统或当前目录中找到 uv”？**
 
-A：说明 `uv` 不在垫片目录也不在 `PATH` 中。请先安装 uv，或把它放到与垫片相同的目录。
+A：请先安装 uv目录。
 
 ```sh
 command -v uv   # 应能输出 uv 的路径
@@ -265,7 +247,7 @@ command -v uv   # 应能输出 uv 的路径
 
 **Q：`which python` 还是指向系统自带的 python？**
 
-A：垫片目录没有排在 `PATH` 最前面。请检查 `~/.zshrc` / `~/.bashrc` 中的顺序，确保 `export PATH="<垫片目录>:$PATH"` 位于其他 Python 相关路径之前，并重新 `source`。
+A：垫片目录没有排在 `PATH` 前面。请检查 `~/.zshrc` / `~/.bashrc` 中的顺序，确保 `export PATH="<垫片目录>:$PATH"` 位于其他 Python 相关路径之前，并重新 `source`。
 
 **Q：会不会和系统里的 Python 打架，甚至删掉系统文件？**
 
@@ -291,8 +273,3 @@ A：这是使用方案 B（`install_uvshim_w_uvpip.sh`）时的正常现象。�
 
 如果想避免此报错，可改用方案 A（`install_uvshim.sh`），它的 `pip` 走 `python -m pip`，支持 `--version`。
 
----
-
-## 卸载后清理（可选）
-
-如果不再需要，可连同 shell 配置中的 PATH 行一起删除，避免残留无效路径。

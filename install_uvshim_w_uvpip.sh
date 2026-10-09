@@ -140,7 +140,7 @@ fi
 CURRENT_DIR=$(pwd)
 HOME_DIR=$(cd "$HOME" && pwd)
 
-# 递归向上寻找最适合的控制文件或工程根目录
+# 递归向上寻找合适的控制文件或工程根目录
 find_active_target() {
     dir="$CURRENT_DIR"
     while [ "$dir" != "/" ]; do
@@ -239,7 +239,7 @@ find_first_dir_in_path() {
     return 1
 }
 
-# 检查安装目录是否在 PATH 中最先生效；否则以警告方式提示用户前置该目录
+# 检查安装目录是否在 PATH 中优先生效；否则以警告方式提示用户前置该目录
 check_path_priority() {
     local target=$1
     local old_ifs=$IFS d idx target_index
@@ -279,7 +279,7 @@ check_path_priority() {
 
     if [ "$target_index" = "0" ] && [ -z "$problems" ]; then
         echo ""
-        echo "✅ 路径检查: 安装目录已在 PATH 最前面，python/python3/pip/pip3 均优先由本垫片接管。"
+        echo "✅ 路径检查: 安装目录已排在 PATH 前面，python/python3/pip/pip3 均优先由本垫片接管。"
         return 0
     fi
 
@@ -289,13 +289,13 @@ check_path_priority() {
     if [ "$target_index" -lt 0 ]; then
         echo "   该目录当前【未包含】在你的 PATH 中。"
     elif [ "$target_index" -gt 0 ]; then
-        echo "   该目录虽在 PATH 中，但【不在最前面】（前面还有 $target_index 个目录）。"
+        echo "   该目录虽在 PATH 中，但【未排在前面】（前面还有 $target_index 个目录）。"
     fi
     if [ -n "$problems" ]; then
         echo "   以下命令未优先解析到安装目录:$problems"
     fi
     echo ""
-    echo "   请把它提到 PATH 最前面，例如在 ~/.zshrc 或 ~/.bashrc 中设置:"
+    echo "   请把它移到 PATH 前面，例如在 ~/.zshrc 或 ~/.bashrc 中设置:"
     printf '     export PATH="%s:$PATH"\n' "$target"
     echo "   然后执行 source ~/.zshrc（或 source ~/.bashrc）后重试。"
 }
@@ -352,8 +352,6 @@ main() {
     echo "=========================================================="
     echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！"
     echo "📂 安装路径: $TARGET_DIR"
-    echo "💡 请确保该路径已加入到你的系统 PATH 环境变量最前列（如 ~/.zshrc 或 ~/.bashrc）"
-    echo "   示例: export PATH=\"$TARGET_DIR:\$PATH\""
     echo "=========================================================="
 
     # 检查 PATH 优先级并给出提示
