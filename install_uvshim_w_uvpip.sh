@@ -279,7 +279,7 @@ check_path_priority() {
 
     if [ -z "$problems" ]; then
         echo ""
-        echo "✅ 路径检查: python/python3/pip/pip3 均优先由本垫片接管。"
+        echo "🟢 路径检查: python/python3/pip/pip3 均优先由本垫片接管。"
         return 0
     fi
 

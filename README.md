@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/install_u
 ✅ 已成功部署: pip3
 ✅ 已成功部署: uvpin
 
-✅ 路径检查: python/python3/pip/pip3 均优先由本垫片接管。
+🟢 路径检查: python/python3/pip/pip3 均优先由本垫片接管。
 
 ==========================================================
 🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！
