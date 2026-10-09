@@ -1,141 +1,144 @@
-# uvshim —— uv 全局 Python 管理垫片
+# uvshim — Global Python management shims for uv
 
-`uvshim` 是一套轻量的 Shell 垫片（Shims），把系统里的 `python` / `python3` / `pip` / `pip3` 全部路由到 [uv](https://github.com/astral-sh/uv)，并额外提供一个环境感知的版本锁定工具 `uvpin`。
+`uvshim` is a lightweight set of shell shims that route your system's `python` / `python3` / `pip` / `pip3` through [uv](https://github.com/astral-sh/uv), plus a context-aware version pinning tool called `uvpin`.
 
-一句话概括它的价值：
+> Chinese documentation: [zh/README.md](zh/README.md)
 
-- **全局只需要一套命令**：无论系统里装了几个 Python，`python` / `pip` 永远指向 uv 托管的、当前上下文正确的版本。
-- **自动感知虚拟环境**：激活了 `.venv` 就直接用 venv 里的 Python。
-- **自动感知项目目录**：在项目里执行 `uvpin 3.12` 就只给该项目锁定版本，互不干扰。
-- **防死循环**：垫片调用 uv 时会从 `PATH` 中剔除自身目录，避免 uv 探测 `python` 时再次命中垫片。
+In a nutshell:
+
+- **One set of commands, globally**: no matter how many Pythons are installed, `python` / `pip` always point to the uv-managed version that is correct for the current context.
+- **Virtualenv-aware**: if a `.venv` is active, its Python is used directly.
+- **Project-aware**: running `uvpin 3.12` inside a project pins that version for the project only.
+- **Loop-safe**: the shims remove their own directory from `PATH` before calling uv, so uv's Python probing never hits the shims again.
 
 ---
 
-## 目录
+## Table of Contents
 
-- [背景与目标问题](#背景与目标问题)
-- [工作原理](#工作原理)
-- [前置要求](#前置要求)
-- [安装](#安装)
-- [使用方法](#使用方法)
+- [Background and Goals](#background-and-goals)
+- [How It Works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
   - [python / python3](#python--python3)
   - [pip / pip3](#pip--pip3)
   - [uvpin](#uvpin)
-- [两种 pip 方案如何选择](#两种-pip-方案如何选择)
-- [卸载](#卸载)
-- [常见问题](#常见问题)
+- [Choosing Between the Two pip Plans](#choosing-between-the-two-pip-plans)
+- [Uninstall](#uninstall)
+- [FAQ](#faq)
 
 ---
 
-## 背景与目标问题
+## Background and Goals
 
-uv 是一套强大的 Python 工具，集项目管理、虚拟环境、包管理于一身，但截至目前（2026/10/09）仍**缺少全局的多版本 Python 管理能力**。
+uv is a powerful Python toolkit covering project management, virtualenvs, and package management, but as of 2026/10/09 it still **lacks global multi-version Python management**.
 
-pyenv 通过垫片（shims）让用户方便地切换各种 Python 版本；uv 官方尚未提供该能力，因此社区里也出现了 `uv-python-shims` 这样的第三方项目，相对本项目可能更成熟，也欢迎大家选用。本项目采用了一种略有不同、但总体思路一致的实现。
+pyenv uses shims to let users switch Python versions easily; since uv does not offer this officially, third-party projects such as `uv-python-shims` have appeared — they may be more mature, and are worth considering. This project takes a slightly different but broadly similar approach.
 
-实现垫片看似不难，实际却有几个坑需要处理：
+Building shims looks easy, yet a few pitfalls need handling:
 
-- **跨系统一致性**：主要是 Linux 与 macOS，要做到行为相同的垫片有不小的挑战。
-- **兼容系统自带 Python**：系统通常自带 Python，用户也可能自行安装，要把这些全部纳入 uv 的版本管理并不容易。
-- **venv 与全局并存**：项目可能使用虚拟环境，也可能直接用全局，垫片需要同时兼顾。
-- **垫片放在哪里**：`/usr/bin`、`/usr/local/bin` 还是用户目录？使用者应当拥有充分的自主选择权。
-- **pip 与 python 的绑定问题**：原生 pip 作为独立程序，配置不当，很容易和 python 主程序脱节，处理起来很麻烦。
-  - 另外稳定但性能略低，能否改用性能更好的 `uv pip` 代替？参见[两种 pip 方案如何选择](#两种-pip-方案如何选择)。
+- **Cross-platform consistency**: mainly Linux vs macOS; making shims behave identically is non-trivial.
+- **Coexisting with system Python**: systems ship their own Python and users may install more; folding all of them into uv's version management is not easy.
+- **venv and global side by side**: a project may use a virtualenv or the global environment; the shims must handle both.
+- **Where to put the shims**: `/usr/bin`, `/usr/local/bin`, or the user's home directory? The user should have full freedom of choice.
+- **The pip-to-python binding problem**: native pip is a separate program and, when misconfigured, easily drifts out of sync with the main Python, which is painful to manage.
+  - It is also stable but slow; can the faster `uv pip` replace it? See [Choosing Between the Two pip Plans](#choosing-between-the-two-pip-plans).
 
-本项目以**简单、够用**的功能解决了上述问题，欢迎交流提问。
+This project solves all of the above with a **simple, good-enough** design. Questions and discussion are welcome.
 
-## 工作原理
+## How It Works
 
-安装脚本会在目标目录（默认 `~/.local/bin`）生成 5 个可执行脚本：
+The installer generates 5 executable scripts in the target directory (default `~/.local/bin`):
 
-| 垫片 | 作用 |
+| Shim | Role |
 | --- | --- |
-| `python` / `python3` | 智能路由：激活了虚拟环境则用 venv 的 Python，否则用 `uv run python` |
-| `pip` / `pip3` | 动态绑定当前 `python` 对应的版本，转发安装请求 |
-| `uvpin` | 环境感知的版本锁定工具，替代裸用 `uv python pin` |
+| `python` / `python3` | Smart routing: use the venv Python if a virtualenv is active, otherwise `uv run python` |
+| `pip` / `pip3` | Dynamically bound to the version behind the current `python`, forwarding install requests |
+| `uvpin` | Context-aware version pinning tool, replacing bare `uv python pin` |
 
-`python` 垫片的核心逻辑：
+Core logic of the `python` shim:
 
 ```sh
 if [ -n "$VIRTUAL_ENV" ]; then
-    exec "$VIRTUAL_ENV/bin/python" "$@"   # 1. 虚拟环境优先
+    exec "$VIRTUAL_ENV/bin/python" "$@"   # 1. virtualenv takes priority
 fi
-# 2. 找到真正的 uv
-# 3. 从 PATH 中剔除垫片目录（防死循环）
-# 4. 用干净的 PATH 执行 uv run python
+# 2. find the real uv
+# 3. remove the shim directory from PATH (loop safety)
+# 4. run uv run python with the cleaned PATH
 PATH="$CLEANED_PATH" exec "$REAL_UV" run python "$@"
 ```
 
-因此，只要垫片目录排在 `PATH` 前面，你平常写的 `python xxx.py`、`pip install xxx` 就会自动走 uv。
+So as long as the shim directory comes earlier in `PATH`, your usual `python xxx.py` and `pip install xxx` automatically go through uv.
 
 ---
 
-## 前置要求
+## Requirements
 
-- **已安装 uv**，并确保 `uv` 可以在命令行中调用（`command -v uv`）。
-  - 官方安装方式：<https://docs.astral.sh/uv/getting-started/installation/>
-- Shell：任意
-- 系统：Linux / macOS
+- **uv installed**, and callable from the command line (`command -v uv`).
+  - Official install guide: <https://docs.astral.sh/uv/getting-started/installation/>
+- Shell: any
+- System: Linux / macOS
 
 ---
 
-## 安装
+## Installation
 
-### 一键安装（从 GitHub）
+### One-line install (from GitHub)
 
-默认安装到 `~/.local/bin`：
+Installs to `~/.local/bin` by default:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/install_uvshim.sh | sh
 ```
 
-### 本地脚本安装
+### Install from the local scripts
 
-克隆或下载本仓库后，两个安装脚本二选一，用法完全一致：
+After cloning or downloading this repository, pick one of the two installers; they are used the same way:
 
 ```sh
-# 方案 A：pip 走原生 python -m pip（兼容性更佳）
-./install_uvshim.sh [目标目录]
+# Plan A: pip uses native python -m pip (best compatibility)
+./install_uvshim.sh [target-dir]
 
-# 方案 B：pip 直接转发给 uv pip（速度更快）
-./install_uvshim_w_uvpip.sh [目标目录]
+# Plan B: pip forwards directly to uv pip (faster)
+./install_uvshim_w_uvpip.sh [target-dir]
 ```
 
-- `[目标目录]` 可选，默认 `~/.local/bin`。
-- 目标目录不存在时会询问是否自动创建。
-- 查看帮助：
+- `[target-dir]` is optional and defaults to `~/.local/bin`.
+- If the target dir does not exist, you are asked whether to create it.
+- Show help:
 
 ```sh
 ./install_uvshim.sh --help
 ```
 
-安装成功后会看到：
+On success you will see:
 
 ```
-✅ 已成功部署: python
-✅ 已成功部署: python3
-✅ 已成功部署: pip
-✅ 已成功部署: pip3
-✅ 已成功部署: uvpin
+🚀 Deploying global multi-platform uv shims into /home/<user>/.local/bin ...
+  ✅ Deployed: python
+  ✅ Deployed: python3
+  ✅ Deployed: pip
+  ✅ Deployed: pip3
+  ✅ Deployed: uvpin
 
-🟢 路径检查: python/python3/pip/pip3 均优先由本垫片接管。
+🟢 PATH check: python/python3/pip/pip3 are all handled by these shims first.
 
 ==========================================================
-🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！
-📂 安装路径: /home/<user>/.local/bin
-💡 为确保新路径正常工作，zsh 请执行 rehash；bash 请执行 hash -r。
+🎉 Done! The global multi-version Python shims are ready!
+📂 Install path: /home/<user>/.local/bin
+💡 To make the new paths effective, run rehash in zsh and hash -r in bash.
 ==========================================================
 ```
 
-若路径检查未通过（安装目录未生效），则会改为输出警告并提示如何调整 `PATH`，此时不再显示上面的祝贺信息。
+If the PATH check fails (the install dir does not take effect), a warning is printed instead — with hints on how to fix `PATH` — and the success banner above is not shown.
 
 ---
 
-## 使用方法
+## Usage
 
 ### python / python3
 
-和平常一样使用即可：
+Use them as usual:
 
 ```sh
 python --version
@@ -144,10 +147,10 @@ python -m http.server
 python3 script.py
 ```
 
-行为规则：
+Rules:
 
-1. **有已激活的虚拟环境**时，直接使用该环境内的 Python（`$VIRTUAL_ENV/bin/python`）。
-2. **没有虚拟环境**时，交给 `uv run python`，由 uv 按当前目录的版本锁定规则选择 Python。
+1. **With an active virtualenv**, the environment's Python is used directly (`$VIRTUAL_ENV/bin/python`).
+2. **Without a virtualenv**, `uv run python` is used, and uv picks the Python according to the version pinned for the current directory.
 
 ### pip / pip3
 
@@ -158,123 +161,131 @@ pip list
 pip3 install "flask>=3.0"
 ```
 
-`pip` 会自动绑定到当前上下文里 `python` 所对应的版本，因此你不需要手动写 `python -m pip`。
+`pip` is automatically bound to the version behind `python` in the current context, so you never need to write `python -m pip` manually.
+
+> Note: in shim mode it is **not** recommended to install into the system/uv global environment from an arbitrary directory. To isolate dependencies per project, create a virtualenv first:
+>
+> ```sh
+> uv venv
+> source .venv/bin/activate
+> pip install requests      # installs into this venv once activated
+> ```
 
 ### uvpin
 
-`uvpin` 用来在一个命令里智能地锁定/查询当前上下文的 Python 版本，替代需要手动区分目录的 `uv python pin`。
+`uvpin` pins or queries the Python version for the current context in a single command, replacing the manual directory juggling of `uv python pin`.
 
 ```sh
-uvpin                # 查看当前上下文生效的 Python 版本及来源
-uvpin 3.12           # 智能锁定当前上下文为 3.12
-uvpin --help         # 查看帮助
+uvpin                # show the effective Python version and its source
+uvpin 3.12           # smartly pin the current context to 3.12
+uvpin --help         # show help
 ```
 
-**智能写入优先级（`uvpin <version>`）：**
+**Smart write priority (`uvpin <version>`):**
 
-| 场景 | 判定条件 | 写入位置 |
+| Case | Condition | Written to |
 | --- | --- | --- |
-| 1. 项目工程目录 | 向上查找到含 `.python-version`、`pyproject.toml` 或 `.venv` 的目录（且不是家目录） | 项目根目录下的本地 `.python-version` |
-| 2. 家目录遗留文件 | `~/.python-version` 存在 | 原地覆盖更新 |
-| 3. 纯全局环境 | 以上都不满足 | `~/.config/uv/.python-version`（`uv python pin --global`） |
+| 1. Project directory | walking up finds a directory containing `.python-version`, `pyproject.toml`, or `.venv` (and it is not the home dir) | local `.python-version` at the project root |
+| 2. Legacy home file | `~/.python-version` exists | overwritten in place |
+| 3. Plain global | none of the above | `~/.config/uv/.python-version` (`uv python pin --global`) |
 
-示例：
+Example:
 
 ```sh
-# 在项目里
+# inside a project
 cd ~/projects/myapp
 uvpin 3.12
-# 📂 检测到处于项目目录，正在为当前项目锁定版本为 3.12...
-# 生成 ~/projects/myapp/.python-version
+# 📂 Project directory detected; pinning version 3.12 for this project...
+# creates ~/projects/myapp/.python-version
 
-# 查询
+# query
 uvpin
-# 📌 项目本地锁定的版本为: 3.12
+# 📌 Project-pinned version: 3.12
 ```
 
-`uvpin` 的查询会把上下文分成三类并给出提示：
+The uvpin query classifies the context into three kinds:
 
-- `project`：身处项目目录，显示项目锁定版本（或提示尚未锁定）。
-- `home_legacy`：受家目录遗留的 `~/.python-version` 控制。
-- `global`：全局配置中心，显示全局默认版本（或提示未初始化）。
+- `project`: inside a project dir; shows the project-pinned version (or says none is pinned yet).
+- `home_legacy`: controlled by a legacy `~/.python-version` in the home dir.
+- `global`: the central config; shows the global default version (or says it is not initialized).
 
 ---
 
-## 两种 pip 方案如何选择
+## Choosing Between the Two pip Plans
 
-| | 方案 A：`install_uvshim.sh` | 方案 B：`install_uvshim_w_uvpip.sh` |
+| | Plan A: `install_uvshim.sh` | Plan B: `install_uvshim_w_uvpip.sh` |
 | --- | --- | --- |
-| pip 实现 | `exec "$SCRIPT_DIR/python" -m pip "$@"` | `exec "$REAL_UV" pip "$@"` |
-| 速度 | 普通 | 更快（uv 原生解析） |
-| 版本切换逻辑 | 完整继承 `python` 垫片的目录 pin | 依赖 `uv pip` 自身的环境解析 |
-| macOS + Homebrew | ✅ 正常 | ⚠️ 可能无法装到目标 Python 版本 |
-| 推荐场景 | 兼容性优先 | Linux，追求安装速度 |
+| pip implementation | `exec "$SCRIPT_DIR/python" -m pip "$@"` | `exec "$REAL_UV" pip "$@"` |
+| Speed | normal | faster (native uv resolution) |
+| Version-switching logic | fully inherits the `python` shim's directory pin | relies on `uv pip`'s own environment resolution |
+| macOS + Homebrew | ✅ works | ⚠️ may fail to install into the target Python version |
+| Recommended for | compatibility first | Linux, when install speed matters |
 
-> 在 **macOS + Homebrew + uv** 的组合下，方案 B 的 `pip` 可能装不到指定 Python 版本的目录里。遇到此问题请改用作方案 A（`install_uvshim.sh`）。
+> On **macOS + Homebrew + uv**, Plan B's `pip` may not install into the directory of the specified Python version. If you hit this, switch to Plan A (`install_uvshim.sh`).
 
 ---
 
-## 卸载
+## Uninstall
 
-使用 `remove_uvshim.sh` 自动清理：
+Use `remove_uvshim.sh` to clean up automatically:
 
 ```sh
-# 自动扫描 PATH 中的所有目录
+# scan all directories in PATH
 ./remove_uvshim.sh
 
-# 或指定要清理的目录
+# or target a specific directory
 ./remove_uvshim.sh ~/.local/bin
 ```
 
-也可直接从 GitHub 运行（自动扫描 PATH）：
+You can also run it straight from GitHub (scans PATH automatically):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/remove_uvshim.sh | sh
 ```
 
-脚本通过检测每个文件里的独家特征码 `[UV-SHIMS-MARKER]` 来精准识别属于自己的垫片，**不会误删**系统原生的 `python` / `pip` 等文件。
+The script identifies its own shims precisely by the unique marker `[UV-SHIMS-MARKER]` in each file, so it **never deletes** native `python` / `pip` or other system files.
 
-输出示例：
+Example output:
 
 ```
-🗑️ 发现并移除垫片: /home/user/.local/bin/python
+🗑️ Found and removed shim: /home/user/.local/bin/python
 ...
-🎉 清理完成！成功移除了以上 5 个 uv 垫片脚本。
+🎉 Cleanup complete! Removed 5 uv shim script(s) above.
 ```
 
 ---
 
-## 常见问题
+## FAQ
 
-**Q：`python` 执行后报错“未在系统或当前目录中找到 uv”？**
+**Q: `python` fails with "uv not found in the system or current directory".**
 
-A：请先安装 uv目录。
+A: Install uv first.
 
 ```sh
-command -v uv   # 应能输出 uv 的路径
+command -v uv   # should print the path to uv
 ```
 
-**Q：`which python` 还是指向系统自带的 python？**
+**Q: `which python` still points to the system Python.**
 
-A：垫片目录没有排在 `PATH` 前面。请检查 `~/.zshrc` / `~/.bashrc` 中的顺序，确保 `export PATH="<垫片目录>:$PATH"` 位于其他 Python 相关路径之前，并重新 `source`。
+A: The shim directory is not early enough in `PATH`. Check the order in `~/.zshrc` / `~/.bashrc` and make sure `export PATH="<shim-dir>:$PATH"` comes before other Python-related paths, then `source` the file again.
 
-**Q：安装后 `which python3`（或实际运行）仍指向 `/opt/homebrew/bin/python3` 等旧路径，但垫片明明已存在？**
+**Q: After installing, `which python3` (or actual execution) still points to an old path like `/opt/homebrew/bin/python3`, even though the shim exists?**
 
-A：这是 shell 的**命令哈希缓存**（command hash）导致的，不是 `PATH` 顺序问题。`~/.local/bin` 本就在 `PATH` 中，但垫片是刚放进去的；shell 早已把 `python3` 缓存成旧路径，而向已存在于 `PATH` 的目录里新增文件不会触发重新扫描。执行 `rehash`（zsh）或 `hash -r`（bash），或直接新开一个终端即可。
+A: This is the shell's **command hash** at work, not a `PATH` ordering problem. `~/.local/bin` was already in `PATH`, but the shims were just added; the shell had already cached `python3` as the old path, and adding files to a directory that is already in `PATH` does not trigger a rescan. Run `rehash` (zsh) or `hash -r` (bash), or simply open a new terminal.
 
-> 补充：bash 的 `which` 通常是外部程序、会直接扫描 `PATH`，所以它可能显示新路径，但**实际执行**仍会用缓存的旧命令；zsh 的 `which` 是内建、会读缓存，因此直接显示旧路径。两者都用上面的命令解决。
+> Note: bash's `which` is usually an external program that scans `PATH` directly, so it may show the new path while **actual execution** still uses the cached old command; zsh's `which` is builtin and reads the cache, so it shows the old path directly. Both are fixed by the commands above.
 
-**Q：会不会和系统里的 Python 打架，甚至删掉系统文件？**
+**Q: Will it clash with the system Python or delete system files?**
 
-A：不会。垫片只是几个独立的 Shell 脚本；卸载脚本仅删除带 `[UV-SHIMS-MARKER]` 特征码的文件。
+A: No. The shims are just standalone shell scripts, and the uninstaller only deletes files carrying the `[UV-SHIMS-MARKER]` marker.
 
-**Q：已经激活了 virtualenv / conda，会怎样？**
+**Q: What happens if a virtualenv / conda is already active?**
 
-A：若设置了 `VIRTUAL_ENV`，`python` 垫片会直接调用该环境内的 Python，不经过 uv。conda 环境若未设置 `VIRTUAL_ENV`，则按普通逻辑交给 uv 处理。
+A: If `VIRTUAL_ENV` is set, the `python` shim calls that environment's Python directly, bypassing uv. A conda environment that does not set `VIRTUAL_ENV` is handled by the normal logic and passed to uv.
 
-**Q：想在项目里隔离依赖怎么办？**
+**Q: How do I isolate dependencies in a project?**
 
-A：创建并激活虚拟环境后再安装：
+A: Create and activate a virtualenv, then install:
 
 ```sh
 uv venv
@@ -282,9 +293,8 @@ source .venv/bin/activate
 pip install <package>
 ```
 
-**Q：使用方案 B 时执行 `pip --version` 报 `error: unexpected argument '--version' found`，怎么办？**
+**Q: With Plan B, `pip --version` fails with `error: unexpected argument '--version' found`.**
 
-A：这是使用方案 B（`install_uvshim_w_uvpip.sh`）时的正常现象。垫片把 `pip` 直接转发给了 `uv pip`，而 `uv pip` 本身不支持 `--version` 选项，因此会报错；这不影响 `pip install` 等其他命令的正常使用。
+A: This is expected with Plan B (`install_uvshim_w_uvpip.sh`). The shim forwards `pip` straight to `uv pip`, and `uv pip` does not support the `--version` option, so it errors; this does not affect `pip install` and other commands.
 
-如果想避免此报错，可改用方案 A（`install_uvshim.sh`），它的 `pip` 走 `python -m pip`，支持 `--version`。
-
+To avoid the error, switch to Plan A (`install_uvshim.sh`), whose `pip` goes through `python -m pip` and supports `--version`.
