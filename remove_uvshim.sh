@@ -36,8 +36,14 @@ main() {
     echo "🔍 开始扫描系统环境与目标目录，寻找专属 uv 垫片..."
 
     # 1. 优先处理用户传入的参数路径
-    if [ -n "$1" ] && [ -d "$1" ]; then
-        remove_shims_in_dir "$1"
+    # POSIX sh 不会对变量值里的 ~ 做展开，这里手动展开 "~" 与 "~/..."
+    local ARG_DIR=$1
+    case "$ARG_DIR" in
+        "~")   ARG_DIR=$HOME ;;
+        "~/"*) ARG_DIR=$HOME/${ARG_DIR#\~/} ;;
+    esac
+    if [ -n "$ARG_DIR" ] && [ -d "$ARG_DIR" ]; then
+        remove_shims_in_dir "$ARG_DIR"
     fi
 
     # 2. 拆分并解析全局 PATH（以冒号为分隔符逐个目录处理，关闭通配避免路径中含通配符）

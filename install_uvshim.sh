@@ -305,6 +305,12 @@ main() {
     # 1. 确定目标安装目录 (优先读取脚本参数，若无则默认使用 ~/.local/bin)
     local TARGET_DIR="${1:-$HOME/.local/bin}"
 
+    # POSIX sh 不会对变量值里的 ~ 做展开，这里手动展开 "~" 与 "~/..."
+    case "$TARGET_DIR" in
+        "~")   TARGET_DIR=$HOME ;;
+        "~/"*) TARGET_DIR=$HOME/${TARGET_DIR#\~/} ;;
+    esac
+
     # 将路径转换为绝对路径，避免相对路径导致脚本内部定位失败
     if [ ! -d "$TARGET_DIR" ]; then
         printf '\033[1;33m⚠️  提示: 目标安装目录 [ %s ] 当前不存在。\033[0m\n' "$TARGET_DIR"
