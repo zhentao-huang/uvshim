@@ -1,5 +1,61 @@
 #!/usr/bin/env bash
 
+# ==============================================================================
+# 1. 全场景完美兼容：获取当前脚本的【真实绝对目录】
+# ==============================================================================
+get_script_dir() {
+    # 如果是被 source 激活 (Bash 优先使用 BASH_SOURCE, Zsh 优先使用 %x 或 $0)
+    if [ -n "$BASH_SOURCE" ]; then
+        _source_path="$BASH_SOURCE"
+    elif [ -n "$ZSH_EVAL_CONTEXT" ] && [ "$ZSH_EVAL_CONTEXT" = "toplevel" ]; then
+        # Zsh 在 source 时特殊处理
+        _source_path="${(%):-%x}"
+    else
+        # 正常直接执行时兜底使用 $0
+        _source_path="$0"
+    fi
+    # 转换为绝对路径
+    echo "$(cd -- "$(dirname -- "$_source_path")" && pwd)"
+}
+SCRIPT_DIR=$(get_script_dir)
+
+# ==============================================================================
+# 2. 全场景完美兼容：获取当前正在运行的【纯粹应用程序名】
+# ==============================================================================
+get_app_name() {
+    if [ -n "$BASH_SOURCE" ]; then
+        echo "${BASH_SOURCE##*/}"
+    elif [ -n "$ZSH_EVAL_CONTEXT" ] && [ "$ZSH_EVAL_CONTEXT" = "toplevel" ]; then
+        _zsh_raw="${(%):-%x}"
+        echo "${_zsh_raw##*/}"
+    else
+        echo "${0##*/}"
+    fi
+}
+APP_NAME=$(get_app_name)
+
+# 显示 install 脚本的使用帮助说明
+show_install_help() {
+    echo "💡 uv 智能全局垫片套装（Shims）一键部署工具"
+    echo "--------------------------------------------------------"
+    echo "用法:"
+    echo "  ./${APP_NAME} [目标目录]     部署垫片到指定目录（默认: ~/.local/bin）"
+    echo "  ./${APP_NAME} -h | --help    显示本帮助说明"
+    echo ""
+    echo "📦 部署包含的文件:"
+    echo "  - python / python3 : 智能防死循环、可自动感知项目虚拟环境的全局路由"
+    echo "  - pip / pip3       : 动态绑定当前 python 版本的依赖安装器（方案B）"
+    echo "  - uvpin            : 上下文环境感知的 Python 版本一键锁定工具, 替代\`uv python pin\`"
+    echo ""
+    echo "--------------------------------------------------------"
+}
+
+# 1. 检查是否需要显示帮助信息
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    show_install_help
+    exit 0
+fi
+
 # 1. 确定目标安装目录 (优先读取脚本参数，若无则默认使用 ~/.local/bin)
 TARGET_DIR="${1:-$HOME/.local/bin}"
 
@@ -49,7 +105,7 @@ if [ -n "\$VIRTUAL_ENV" ]; then
 fi
 
 # 2. 获取当前脚本（和 uv）所在的目录
-SCRIPT_DIR=\$(cd "\$(dirname "\$0")" && pwd)
+SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
 
 # 3. 找到真正的 uv 绝对路径 (优先 command -v，比 which 更跨平台)
 REAL_UV="\$SCRIPT_DIR/uv"
@@ -82,7 +138,7 @@ create_pip_shim() {
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
 # 1. 获取当前脚本所在的目录
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
 
 # 2. 精确调用旁边已经打好「防死循环补丁」的 python 垫片
 # 通过 python -m pip 调用，完美继承目录 pin 的所有多版本切换逻辑，且不惧 Homebrew 干扰
@@ -137,7 +193,7 @@ find_active_target() {
             echo "project:$dir"
             return
         fi
-        dir=$(dirname "$dir")
+        dir=$(dirname -- "$dir")
     done
 
     # 2. 检测家目录残留
