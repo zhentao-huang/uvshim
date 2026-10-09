@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+# 1. 确定目标安装目录
+TARGET_DIR="${HOME}/.local/bin"
+mkdir -p "$TARGET_DIR"
+
+echo "🚀 开始在 $TARGET_DIR 中部署全局多平台兼容 uv 垫片（Shims）..."
+
+# 获取当前系统类型 (Linux / Darwin)
+OS_TYPE=$(uname -s)
+
+# 2. 动态生成 python 和 python3 垫片
+create_python_shim() {
+    local name=$1
+    local file_path="$TARGET_DIR/$name"
+
+    # 根据不同操作系统，预设好绝对兼容的 PATH 清洗命令
+    local sed_cmd=""
+    if [ "$OS_TYPE" = "Darwin" ]; then
+        # macOS (BSD sed) 兼容写法
+        sed_cmd='CLEANED_PATH=$(echo "$PATH" | sed -E "s#(^|:)$SCRIPT_DIR(:|\$)#:#g; s#^:##; s#:\$##")'
+    else
+        # Linux (GNU sed) 兼容写法
+        sed_cmd='CLEANED_PATH=$(echo "$PATH" | sed -r "s#(^|:)$SCRIPT_DIR(:|\$)#:#g; s#^:##; s#:\$##")'
+    fi
+
+    cat << EOF > "$file_path"
+#!/bin/sh
+
+# 1. 如果已经在激活的虚拟环境中，直接执行虚拟环境内的 python
+if [ -n "\$VIRTUAL_ENV" ]; then
+    exec "\$VIRTUAL_ENV/bin/python" "\$@"
+fi
+
+# 2. 获取当前脚本（和 uv）所在的目录
+SCRIPT_DIR=\$(cd "\$(dirname "\$0")" && pwd)
+
+# 3. 找到真正的 uv 绝对路径 (优先 command -v，比 which 更跨平台)
+REAL_UV="\$SCRIPT_DIR/uv"
+if [ ! -x "\$REAL_UV" ]; then
+    REAL_UV=\$(command -v uv 2>/dev/null)
+fi
+
+if [ -z "\$REAL_UV" ]; then
+    echo "❌ 错误: 未在系统或当前目录中找到 uv，请先安装 uv！" >&2
+    exit 1
+fi
+
+# 4. 从当前的 PATH 中安全移除当前拦截脚本的目录 (防止 uv 内部探测时发生死循环)
+$sed_cmd
+
+# 5. 用干净的 PATH 执行 uv run
+PATH="\$CLEANED_PATH" exec "\$REAL_UV" run python "\$@"
+EOF
+
+    chmod +x "$file_path"
+    echo "  ✅ 已成功部署: $name"
+}
+
+# 3. 创建 pip 垫片
+create_pip_shim() {
+    local file_path="$TARGET_DIR/pip"
+
+    cat << 'EOF' > "$file_path"
+#!/bin/sh
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+REAL_UV="$SCRIPT_DIR/uv"
+if [ ! -x "$REAL_UV" ]; then
+    REAL_UV=$(command -v uv 2>/dev/null)
+fi
+
+if [ -z "$REAL_UV" ]; then
+    echo "❌ 错误: 未找到 uv 路径！" >&2
+    exit 1
+fi
+
+# 直接转发给超高速的 uv pip，完美自适应当前目录 pin 的 python 版本
+exec "$REAL_UV" pip "$@"
+EOF
+
+    chmod +x "$file_path"
+    echo "  ✅ 已成功部署: pip"
+}
+
+# 4. 执行生成逻辑
+create_python_shim "python"
+create_python_shim "python3"
+create_pip_shim
+
+echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已成功在 $OS_TYPE 系统下部署就绪！"
