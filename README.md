@@ -1,8 +1,8 @@
+> 中文文档: [zh/README.md](zh/README.md)
+
 # uvshim — Global Python management shims for uv
 
 `uvshim` is a lightweight set of shell shims that route your system's `python` / `python3` / `pip` / `pip3` through [uv](https://github.com/astral-sh/uv), plus a context-aware version pinning tool called `uvpin`.
-
-> Chinese documentation: [zh/README.md](zh/README.md)
 
 In a nutshell:
 
@@ -298,3 +298,9 @@ pip install <package>
 A: This is expected with Plan B (`install_uvshim_w_uvpip.sh`). The shim forwards `pip` straight to `uv pip`, and `uv pip` does not support the `--version` option, so it errors; this does not affect `pip install` and other commands.
 
 To avoid the error, switch to Plan A (`install_uvshim.sh`), whose `pip` goes through `python -m pip` and supports `--version`.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).

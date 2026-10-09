@@ -290,3 +290,9 @@ A：这是使用方案 B（`install_uvshim_w_uvpip.sh`）时的正常现象。�
 
 如果想避免此报错，可改用方案 A（`install_uvshim.sh`），它的 `pip` 走 `python -m pip`，支持 `--version`。
 
+---
+
+## 许可证
+
+本项目基于 [MIT 许可证](../LICENSE) 发布。
+
