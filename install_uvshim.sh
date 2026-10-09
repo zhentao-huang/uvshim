@@ -354,7 +354,7 @@ main() {
         echo "=========================================================="
         echo "🎉 Done! The global multi-version Python shims are ready!"
         echo "📂 Install path: $TARGET_DIR"
-        echo "💡 To make the new paths effective, run rehash in zsh and hash -r in bash."
+        echo "💡 To make the new paths effective, run \`rehash\` in zsh and \`hash -r\` in bash."
         echo "=========================================================="
     fi
 }

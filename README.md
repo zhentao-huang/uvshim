@@ -126,7 +126,7 @@ On success you will see:
 ==========================================================
 🎉 Done! The global multi-version Python shims are ready!
 📂 Install path: /home/<user>/.local/bin
-💡 To make the new paths effective, run rehash in zsh and hash -r in bash.
+💡 To make the new paths effective, run `rehash` in zsh and `hash -r` in bash.
 ==========================================================
 ```
 

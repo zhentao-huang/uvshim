@@ -125,7 +125,7 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/zh/instal
 ==========================================================
 🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！
 📂 安装路径: /home/<user>/.local/bin
-💡 为确保新路径正常工作，zsh 请执行 rehash；bash 请执行 hash -r。
+💡 为确保新路径正常工作，zsh 请执行 `rehash`；bash 请执行 `hash -r`。
 ==========================================================
 ```
 
