@@ -5,9 +5,10 @@
 remove_shims_in_dir() {
     local dir=$1
     [ -d "$dir" ] || return
-    local abs_dir
+    # 变量声明都带赋值：zsh 的 local 在无赋值时会打印变量值（TYPESET_SILENT 默认关闭）
+    local abs_dir=
     abs_dir=$(cd "$dir" && pwd) || return
-    local name file_path
+    local name= file_path=
     # 直接列出文件名，避免依赖未加引号变量的单词拆分（zsh 默认不拆分）
     for name in python python3 pip pip3 uvpin; do
         file_path="$abs_dir/$name"
@@ -46,7 +47,7 @@ main() {
     fi
 
     # 2. 解析全局 PATH（手动按冒号切分：兼容 zsh 默认不对未加引号的变量做单词拆分）
-    local rest=$PATH p
+    local rest=$PATH p=
     while [ -n "$rest" ]; do
         case "$rest" in
             *:*) p=${rest%%:*}; rest=${rest#*:} ;;

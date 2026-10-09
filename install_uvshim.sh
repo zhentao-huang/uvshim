@@ -213,7 +213,8 @@ EOF
 # 在 PATH 中查找某个可执行文件，返回其第一个命中的目录（规范化为绝对路径）
 find_first_dir_in_path() {
     local name=$1
-    local rest=$PATH d
+    # 变量声明都带赋值：zsh 的 local 在无赋值时会打印变量值（TYPESET_SILENT 默认关闭）
+    local rest=$PATH d=
     # 手动按冒号切分：兼容 zsh 默认不对未加引号的变量做单词拆分的行为
     while [ -n "$rest" ]; do
         case "$rest" in
@@ -232,7 +233,7 @@ find_first_dir_in_path() {
 # 检查安装目录是否在 PATH 中优先生效；否则以警告方式提示用户前置该目录
 check_path_priority() {
     local target=$1
-    local rest=$PATH d idx target_index
+    local rest=$PATH d= idx= target_index= cd_dir=
     idx=0
     target_index=-1
     # 手动按冒号切分：兼容 zsh 默认不对未加引号的变量做单词拆分的行为
@@ -242,7 +243,6 @@ check_path_priority() {
             *)   d=$rest; rest= ;;
         esac
         if [ -n "$d" ]; then
-            local cd_dir
             cd_dir=$(cd "$d" 2>/dev/null && pwd) || cd_dir=$d
             if [ "$cd_dir" = "$target" ]; then
                 target_index=$idx
@@ -253,7 +253,7 @@ check_path_priority() {
     done
 
     # 只要这些命令都能优先解析到安装目录，垫片即已生效
-    local problems="" cmd found
+    local problems= cmd= found=
     for cmd in python python3 pip pip3; do
         found=$(find_first_dir_in_path "$cmd")
         if [ "$found" != "$target" ]; then
@@ -286,6 +286,7 @@ check_path_priority() {
     echo "   请把它移到 PATH 前面，例如在 ~/.zshrc 或 ~/.bashrc 中设置:"
     printf '     export PATH="%s:$PATH"\n' "$target"
     echo "   然后执行 source ~/.zshrc（或 source ~/.bashrc）后重试。"
+    return 1
 }
 
 # ==============================================================================
@@ -333,8 +334,7 @@ main() {
     echo "🚀 开始在 $TARGET_DIR 中部署全局多平台兼容 uv 垫片（Shims）..."
 
     # 获取当前系统类型 (Linux / Darwin)
-    local OS_TYPE
-    OS_TYPE=$(uname -s)
+    local OS_TYPE=$(uname -s)
 
     # 2. 执行生成逻辑
     create_python_shim "python"
@@ -343,13 +343,14 @@ main() {
     create_pip_shim "pip3"
     create_uvpin_tool
 
-    echo "=========================================================="
-    echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！"
-    echo "📂 安装路径: $TARGET_DIR"
-    echo "=========================================================="
-
-    # 检查 PATH 优先级并给出提示
-    check_path_priority "$TARGET_DIR"
+    # 紧跟部署结果做 PATH 检查；检查通过后再给出祝贺信息，否则只保留警告
+    if check_path_priority "$TARGET_DIR"; then
+        echo ""
+        echo "=========================================================="
+        echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！"
+        echo "📂 安装路径: $TARGET_DIR"
+        echo "=========================================================="
+    fi
 }
 
 main "$@"
