@@ -1,38 +1,18 @@
 #!/bin/sh
 
 # ==============================================================================
-# 1. 全场景完美兼容：获取当前脚本的【真实绝对目录】
+# 脚本名（仅用于帮助信息）。
+# 直接执行时 $0 即为脚本名；但被 source 时 $0 是当前 shell，
+# 因此优先用 bash 的 BASH_SOURCE / zsh 的 %x 还原真实脚本名；
+# 非 bash/zsh 的 sh 无法获知，则回退到下面与文件名一致的固定值。
 # ==============================================================================
-get_script_dir() {
-    # 如果是被 source 激活 (Bash 优先使用 BASH_SOURCE, Zsh 优先使用 %x 或 $0)
-    if [ -n "$BASH_SOURCE" ]; then
-        _source_path="$BASH_SOURCE"
-    elif [ -n "$ZSH_EVAL_CONTEXT" ] && [ "$ZSH_EVAL_CONTEXT" = "toplevel" ]; then
-        # Zsh 在 source 时特殊处理（用 eval 包裹，避免非 zsh 的 sh 解析报错）
-        eval '_source_path=${(%):-%x}'
-    else
-        # 正常直接执行时兜底使用 $0
-        _source_path="$0"
-    fi
-    # 转换为绝对路径
-    echo "$(cd -- "$(dirname -- "$_source_path")" && pwd)"
-}
-SCRIPT_DIR=$(get_script_dir)
-
-# ==============================================================================
-# 2. 全场景完美兼容：获取当前正在运行的【纯粹应用程序名】
-# ==============================================================================
-get_app_name() {
-    if [ -n "$BASH_SOURCE" ]; then
-        echo "${BASH_SOURCE##*/}"
-    elif [ -n "$ZSH_EVAL_CONTEXT" ] && [ "$ZSH_EVAL_CONTEXT" = "toplevel" ]; then
-        eval '_zsh_raw=${(%):-%x}'
-        echo "${_zsh_raw##*/}"
-    else
-        echo "${0##*/}"
-    fi
-}
-APP_NAME=$(get_app_name)
+APP_NAME=install_uvshim.sh
+if [ -n "$BASH_SOURCE" ]; then
+    APP_NAME=${BASH_SOURCE##*/}
+elif [ -n "$ZSH_EVAL_CONTEXT" ]; then
+    eval 'APP_NAME=${(%):-%x}'
+    APP_NAME=${APP_NAME##*/}
+fi
 
 # 显示 install 脚本的使用帮助说明
 show_install_help() {
@@ -50,42 +30,7 @@ show_install_help() {
     echo "--------------------------------------------------------"
 }
 
-# 1. 检查是否需要显示帮助信息
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    show_install_help
-    exit 0
-fi
-
-# 1. 确定目标安装目录 (优先读取脚本参数，若无则默认使用 ~/.local/bin)
-TARGET_DIR="${1:-$HOME/.local/bin}"
-
-# 将路径转换为绝对路径，避免相对路径导致脚本内部定位失败
-if [ ! -d "$TARGET_DIR" ]; then
-    printf '\033[1;33m⚠️  提示: 目标安装目录 [ %s ] 当前不存在。\033[0m\n' "$TARGET_DIR"
-    # 优先从终端读取交互输入（兼容 curl ... | sh 的管道安装）；
-    # 若读不到终端（如 CI），则默认自动创建目录。
-    printf '是否需要自动创建该目录并继续安装？[y/N]: '
-    CONFIRM=""
-    read CONFIRM 2>/dev/null < /dev/tty || CONFIRM="y"
-    case "$CONFIRM" in
-        [yY]|[yY][eE][sS])
-            echo "  📂 正在创建目录: $TARGET_DIR"
-            mkdir -p "$TARGET_DIR"
-            ;;
-        *)
-            echo "❌ 用户取消操作，安装脚本已安全退出。"
-            exit 0
-            ;;
-    esac
-fi
-TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
-
-echo "🚀 开始在 $TARGET_DIR 中部署全局多平台兼容 uv 垫片（Shims）..."
-
-# 获取当前系统类型 (Linux / Darwin)
-OS_TYPE=$(uname -s)
-
-# 2. 动态生成 python 和 python3 垫片
+# 动态生成 python 和 python3 垫片
 create_python_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
@@ -133,7 +78,7 @@ EOF
     echo "  ✅ 已成功部署: $name"
 }
 
-# 3. 创建 pip 和 pip3 垫片 (升级为方案 B：动态绑定 python 版本，解决 macOS/Homebrew 冲突)
+# 创建 pip 和 pip3 垫片 (升级为方案 B：动态绑定 python 版本，解决 macOS/Homebrew 冲突)
 create_pip_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
@@ -153,7 +98,7 @@ EOF
     echo "  ✅ 已成功部署: $name"
 }
 
-# 4. 【核心新增】创建智能环境感知 uvpin 脚本
+# 【核心新增】创建智能环境感知 uvpin 脚本
 create_uvpin_tool() {
     local file_path="$TARGET_DIR/uvpin"
 
@@ -265,16 +210,61 @@ EOF
     echo "  ✅ 已成功部署: uvpin"
 }
 
-# 5. 执行生成逻辑
-create_python_shim "python"
-create_python_shim "python3"
-create_pip_shim "pip"
-create_pip_shim "pip3"
-create_uvpin_tool
+# ==============================================================================
+# 主流程。
+# 封装成函数后可用 return 安全提前退出：被 source 时只结束本函数、
+# 不会杀掉调用者的 shell；直接执行时函数返回后脚本自然结束。
+# ==============================================================================
+main() {
+    # 1. 检查是否需要显示帮助信息
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+        show_install_help
+        return 0
+    fi
 
-echo "=========================================================="
-echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！"
-echo "📂 安装路径: $TARGET_DIR"
-echo "💡 请确保该路径已加入到你的系统 PATH 环境变量最前列（如 ~/.zshrc 或 ~/.bashrc）"
-echo "   示例: export PATH=\"$TARGET_DIR:\$PATH\""
-echo "=========================================================="
+    # 1. 确定目标安装目录 (优先读取脚本参数，若无则默认使用 ~/.local/bin)
+    local TARGET_DIR="${1:-$HOME/.local/bin}"
+
+    # 将路径转换为绝对路径，避免相对路径导致脚本内部定位失败
+    if [ ! -d "$TARGET_DIR" ]; then
+        printf '\033[1;33m⚠️  提示: 目标安装目录 [ %s ] 当前不存在。\033[0m\n' "$TARGET_DIR"
+        # 优先从终端读取交互输入（兼容 curl ... | sh 的管道安装）；
+        # 若读不到终端（如 CI），则默认自动创建目录。
+        printf '是否需要自动创建该目录并继续安装？[y/N]: '
+        CONFIRM=""
+        read CONFIRM 2>/dev/null < /dev/tty || CONFIRM="y"
+        case "$CONFIRM" in
+            [yY]|[yY][eE][sS])
+                echo "  📂 正在创建目录: $TARGET_DIR"
+                mkdir -p "$TARGET_DIR"
+                ;;
+            *)
+                echo "❌ 用户取消操作，安装脚本已安全退出。"
+                return 0
+                ;;
+        esac
+    fi
+    TARGET_DIR=$(cd "$TARGET_DIR" && pwd)
+
+    echo "🚀 开始在 $TARGET_DIR 中部署全局多平台兼容 uv 垫片（Shims）..."
+
+    # 获取当前系统类型 (Linux / Darwin)
+    local OS_TYPE
+    OS_TYPE=$(uname -s)
+
+    # 2. 执行生成逻辑
+    create_python_shim "python"
+    create_python_shim "python3"
+    create_pip_shim "pip"
+    create_pip_shim "pip3"
+    create_uvpin_tool
+
+    echo "=========================================================="
+    echo "🎉 恭喜！全平台多版本 Python 全局管理垫片已部署就绪！"
+    echo "📂 安装路径: $TARGET_DIR"
+    echo "💡 请确保该路径已加入到你的系统 PATH 环境变量最前列（如 ~/.zshrc 或 ~/.bashrc）"
+    echo "   示例: export PATH=\"$TARGET_DIR:\$PATH\""
+    echo "=========================================================="
+}
+
+main "$@"
