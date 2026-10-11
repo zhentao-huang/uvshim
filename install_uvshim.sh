@@ -79,21 +79,70 @@ EOF
     echo "  ✅ Deployed: $name"
 }
 
-# Create the pip and pip3 shims (Plan B: bind to the current python version, avoids macOS/Homebrew conflicts)
+# Find a standalone pip/pip3 in PATH that is not one of our shims (empty if none).
+# Tries the given name first, then the alternate name. Used at install time.
+find_standalone_pip() {
+    local first="$1" second="$2" want= rest= d= cand= abs=
+    for want in "$first" "$second"; do
+        [ -n "$want" ] || continue
+        rest=$PATH
+        while [ -n "$rest" ]; do
+            case "$rest" in
+                *:*) d=${rest%%:*}; rest=${rest#*:} ;;
+                *)   d=$rest; rest= ;;
+            esac
+            [ -n "$d" ] || continue
+            cand="$d/$want"
+            if [ -x "$cand" ] && ! grep -q '\[UV-SHIMS-MARKER\]' "$cand" 2>/dev/null; then
+                abs=$(cd "$d" 2>/dev/null && pwd)
+                [ -n "$abs" ] || abs=$d
+                echo "$abs/$want"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+# Create the pip and pip3 shims (Plan A: bind to the current python via "python -m pip")
 create_pip_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    cat << 'EOF' > "$file_path"
+    # Resolve the fallbacks once, at install time:
+    #  - a standalone pip/pip3 in PATH (e.g. from python3-pip), skipping our own shims
+    #  - the uv executable
+    local other=
+    case "$name" in
+        pip)  other=pip3 ;;
+        pip3) other=pip ;;
+    esac
+    local fallback_pip=
+    fallback_pip=$(find_standalone_pip "$name" "$other")
+    local real_uv="$TARGET_DIR/uv"
+    [ -x "$real_uv" ] || real_uv=$(command -v uv 2>/dev/null)
+
+    cat << EOF > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
-# 1. Locate this script's directory
-SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
 
-# 2. Call the loop-safe python shim next to it.
-# Using python -m pip inherits all of the directory-pin version-switching logic
-# and is immune to Homebrew interference.
-exec "$SCRIPT_DIR/python" -m pip "$@"
+# 1) Prefer the bound python's own pip (inherits the directory-pin / venv logic
+#    and avoids Homebrew pip interference)
+if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
+    exec "\$SCRIPT_DIR/python" -m pip "\$@"
+fi
+
+# 2) Fall back to a standalone pip detected at install time (e.g. from python3-pip)
+FALLBACK_PIP="$fallback_pip"
+if [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
+    exec "\$FALLBACK_PIP" "\$@"
+fi
+
+# 3) Fall back to uv's own installer
+UV="$real_uv"
+[ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
+exec "\$UV" pip "\$@"
 EOF
 
     chmod +x "$file_path"

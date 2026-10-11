@@ -78,20 +78,69 @@ EOF
     echo "  ✅ 已成功部署: $name"
 }
 
-# 创建 pip 和 pip3 垫片 (升级为方案 B：动态绑定 python 版本，解决 macOS/Homebrew 冲突)
+# 在 PATH 中查找一个不是我们垫片的独立 pip/pip3（找不到则输出空）。安装时使用。
+# 优先尝试第一个名字，再尝试第二个名字。
+find_standalone_pip() {
+    local first="$1" second="$2" want= rest= d= cand= abs=
+    for want in "$first" "$second"; do
+        [ -n "$want" ] || continue
+        rest=$PATH
+        while [ -n "$rest" ]; do
+            case "$rest" in
+                *:*) d=${rest%%:*}; rest=${rest#*:} ;;
+                *)   d=$rest; rest= ;;
+            esac
+            [ -n "$d" ] || continue
+            cand="$d/$want"
+            if [ -x "$cand" ] && ! grep -q '\[UV-SHIMS-MARKER\]' "$cand" 2>/dev/null; then
+                abs=$(cd "$d" 2>/dev/null && pwd)
+                [ -n "$abs" ] || abs=$d
+                echo "$abs/$want"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+# 创建 pip 和 pip3 垫片 (方案 A：通过 `python -m pip` 绑定当前 python)
 create_pip_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    cat << 'EOF' > "$file_path"
+    # 安装时一次性确定回退目标：
+    #  - PATH 中的独立 pip/pip3（如由 python3-pip 安装），跳过我们自己的垫片
+    #  - uv 可执行文件
+    local other=
+    case "$name" in
+        pip)  other=pip3 ;;
+        pip3) other=pip ;;
+    esac
+    local fallback_pip=
+    fallback_pip=$(find_standalone_pip "$name" "$other")
+    local real_uv="$TARGET_DIR/uv"
+    [ -x "$real_uv" ] || real_uv=$(command -v uv 2>/dev/null)
+
+    cat << EOF > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
-# 1. 获取当前脚本所在的目录
-SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
 
-# 2. 精确调用旁边已经打好「防死循环补丁」的 python 垫片
-# 通过 python -m pip 调用，完美继承目录 pin 的所有多版本切换逻辑，且不惧 Homebrew 干扰
-exec "$SCRIPT_DIR/python" -m pip "$@"
+# 1) 优先使用所绑定 python 自带的 pip（继承目录 pin / 虚拟环境切换逻辑，且不惧 Homebrew 干扰）
+if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
+    exec "\$SCRIPT_DIR/python" -m pip "\$@"
+fi
+
+# 2) 回退到安装时探测到的独立 pip（如由 python3-pip 安装）
+FALLBACK_PIP="$fallback_pip"
+if [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
+    exec "\$FALLBACK_PIP" "\$@"
+fi
+
+# 3) 回退到 uv 自带的安装器
+UV="$real_uv"
+[ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
+exec "\$UV" pip "\$@"
 EOF
 
     chmod +x "$file_path"

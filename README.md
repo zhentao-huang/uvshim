@@ -163,6 +163,8 @@ pip3 install "flask>=3.0"
 
 `pip` is automatically bound to the version behind `python` in the current context, so you never need to write `python -m pip` manually.
 
+If the resolved Python has no `pip` module (some system Pythons ship without it), the shim falls back to a standalone `pip` / `pip3` found elsewhere in `PATH`.
+
 > Note: in shim mode it is **not** recommended to install into the system/uv global environment from an arbitrary directory. To isolate dependencies per project, create a virtualenv first:
 >
 > ```sh
