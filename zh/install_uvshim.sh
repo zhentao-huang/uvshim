@@ -78,46 +78,12 @@ EOF
     echo "  ✅ 已成功部署: $name"
 }
 
-# 在 PATH 中查找一个不是我们垫片的独立 pip/pip3（找不到则输出空）。安装时使用。
-# 优先尝试第一个名字，再尝试第二个名字。
-find_standalone_pip() {
-    local first="$1" second="$2" want= rest= d= cand= abs=
-    for want in "$first" "$second"; do
-        [ -n "$want" ] || continue
-        rest=$PATH
-        while [ -n "$rest" ]; do
-            case "$rest" in
-                *:*) d=${rest%%:*}; rest=${rest#*:} ;;
-                *)   d=$rest; rest= ;;
-            esac
-            [ -n "$d" ] || continue
-            cand="$d/$want"
-            if [ -x "$cand" ] && ! grep -q '\[UV-SHIMS-MARKER\]' "$cand" 2>/dev/null; then
-                abs=$(cd "$d" 2>/dev/null && pwd)
-                [ -n "$abs" ] || abs=$d
-                echo "$abs/$want"
-                return 0
-            fi
-        done
-    done
-    return 1
-}
-
-# 创建 pip 和 pip3 垫片 (方案 A：通过 `python -m pip` 绑定当前 python)
+# 创建 pip 和 pip3 垫片
 create_pip_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    # 安装时一次性确定回退目标：
-    #  - PATH 中的独立 pip/pip3（如由 python3-pip 安装），跳过我们自己的垫片
-    #  - uv 可执行文件
-    local other=
-    case "$name" in
-        pip)  other=pip3 ;;
-        pip3) other=pip ;;
-    esac
-    local fallback_pip=
-    fallback_pip=$(find_standalone_pip "$name" "$other")
+    # 安装时解析一次 uv 可执行文件
     local real_uv="$TARGET_DIR/uv"
     [ -x "$real_uv" ] || real_uv=$(command -v uv 2>/dev/null)
 
@@ -126,26 +92,21 @@ create_pip_shim() {
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
 SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
 
-# 1) 优先使用所绑定 python 自带的 pip（继承目录 pin / 虚拟环境切换逻辑，且不惧 Homebrew 干扰）
-if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
-    exec "\$SCRIPT_DIR/python" -m pip "\$@"
-fi
-
-# 2) 回退到安装时探测到的独立 pip（如由 python3-pip 安装）。
-#    仅在没有激活的虚拟环境时使用，避免装到虚拟环境之外。
-FALLBACK_PIP="$fallback_pip"
-if [ -z "\$VIRTUAL_ENV" ] && [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
-    exec "\$FALLBACK_PIP" "\$@"
-fi
-
-# 3) 回退到 uv 自带的安装器。有激活的虚拟环境时装进该环境；没有时装进系统环境。
 UV="$real_uv"
 [ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
-if [ -n "\$VIRTUAL_ENV" ]; then
+
+# 1) 处于环境中：已激活的虚拟环境，或当前目录下的 .venv。
+#    有自带 pip 就用它，否则用 uv pip（会定位到该 venv）。
+if [ -n "\$VIRTUAL_ENV" ] || [ -d .venv ]; then
+    if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
+        exec "\$SCRIPT_DIR/python" -m pip "\$@"
+    fi
     exec "\$UV" pip "\$@"
-else
-    UV_SYSTEM_PYTHON=1 exec "\$UV" pip "\$@"
 fi
+
+# 2) 不在任何环境中：回退到 uv 的工具管理器（隔离的 CLI 环境）。
+#    例如 pip install podman-compose==1.6.0 -> uv tool install podman-compose==1.6.0
+exec "\$UV" tool "\$@"
 EOF
 
     chmod +x "$file_path"

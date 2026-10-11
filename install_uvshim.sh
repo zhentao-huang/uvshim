@@ -79,46 +79,12 @@ EOF
     echo "  ✅ Deployed: $name"
 }
 
-# Find a standalone pip/pip3 in PATH that is not one of our shims (empty if none).
-# Tries the given name first, then the alternate name. Used at install time.
-find_standalone_pip() {
-    local first="$1" second="$2" want= rest= d= cand= abs=
-    for want in "$first" "$second"; do
-        [ -n "$want" ] || continue
-        rest=$PATH
-        while [ -n "$rest" ]; do
-            case "$rest" in
-                *:*) d=${rest%%:*}; rest=${rest#*:} ;;
-                *)   d=$rest; rest= ;;
-            esac
-            [ -n "$d" ] || continue
-            cand="$d/$want"
-            if [ -x "$cand" ] && ! grep -q '\[UV-SHIMS-MARKER\]' "$cand" 2>/dev/null; then
-                abs=$(cd "$d" 2>/dev/null && pwd)
-                [ -n "$abs" ] || abs=$d
-                echo "$abs/$want"
-                return 0
-            fi
-        done
-    done
-    return 1
-}
-
-# Create the pip and pip3 shims (Plan A: bind to the current python via "python -m pip")
+# Create the pip and pip3 shims
 create_pip_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    # Resolve the fallbacks once, at install time:
-    #  - a standalone pip/pip3 in PATH (e.g. from python3-pip), skipping our own shims
-    #  - the uv executable
-    local other=
-    case "$name" in
-        pip)  other=pip3 ;;
-        pip3) other=pip ;;
-    esac
-    local fallback_pip=
-    fallback_pip=$(find_standalone_pip "$name" "$other")
+    # Resolve the uv executable once, at install time
     local real_uv="$TARGET_DIR/uv"
     [ -x "$real_uv" ] || real_uv=$(command -v uv 2>/dev/null)
 
@@ -127,28 +93,21 @@ create_pip_shim() {
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
 SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
 
-# 1) Prefer the bound python's own pip (inherits the directory-pin / venv logic
-#    and avoids Homebrew pip interference)
-if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
-    exec "\$SCRIPT_DIR/python" -m pip "\$@"
-fi
-
-# 2) Fall back to a standalone pip detected at install time (e.g. from python3-pip).
-#    Only when no virtualenv is active, so we never install outside an active venv.
-FALLBACK_PIP="$fallback_pip"
-if [ -z "\$VIRTUAL_ENV" ] && [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
-    exec "\$FALLBACK_PIP" "\$@"
-fi
-
-# 3) Fall back to uv's own installer. Inside a venv it targets that venv; with no
-#    active venv it installs into the non-virtual (system) environment.
 UV="$real_uv"
 [ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
-if [ -n "\$VIRTUAL_ENV" ]; then
+
+# 1) Inside an environment: an activated virtualenv, or a local .venv.
+#    Use the environment's own pip when present, otherwise uv pip (targets the venv).
+if [ -n "\$VIRTUAL_ENV" ] || [ -d .venv ]; then
+    if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
+        exec "\$SCRIPT_DIR/python" -m pip "\$@"
+    fi
     exec "\$UV" pip "\$@"
-else
-    UV_SYSTEM_PYTHON=1 exec "\$UV" pip "\$@"
 fi
+
+# 2) No environment: fall back to uv's tool manager (isolated CLI environments).
+#    e.g. pip install podman-compose==1.6.0 -> uv tool install podman-compose==1.6.0
+exec "\$UV" tool "\$@"
 EOF
 
     chmod +x "$file_path"

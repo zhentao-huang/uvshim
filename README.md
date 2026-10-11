@@ -163,7 +163,7 @@ pip3 install "flask>=3.0"
 
 `pip` is automatically bound to the version behind `python` in the current context, so you never need to write `python -m pip` manually.
 
-If the resolved Python has no `pip` module (some system Pythons ship without it), the shim falls back to a standalone `pip` / `pip3` found elsewhere in `PATH`, and finally to `uv pip` (into the active virtualenv, or into the system environment when none is active). Note that if the system Python is PEP 668 externally managed, `uv pip --system` will refuse to install (use a venv or `uv tool install` instead).
+Inside a virtualenv (activated, or a local `.venv`) the shim installs into that environment (using its own pip, or `uv pip`). Outside any environment it falls back to `uv tool` (isolated CLI environments) — e.g. `pip install podman-compose==1.6.0` becomes `uv tool install podman-compose==1.6.0`.
 
 > Note: in shim mode it is **not** recommended to install into the system/uv global environment from an arbitrary directory. To isolate dependencies per project, create a virtualenv first:
 >

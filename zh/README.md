@@ -162,7 +162,7 @@ pip3 install "flask>=3.0"
 
 `pip` 会自动绑定到当前上下文里 `python` 所对应的版本，因此你不需要手动写 `python -m pip`。
 
-如果所绑定的 python 没有内置 `pip` 模块（有些系统自带的 python 就是如此），垫片会回退到 `PATH` 中其它位置的独立 `pip` / `pip3`，最后再回退到 `uv pip`（有激活的虚拟环境时装进该环境，否则装进系统环境）。注意：若系统 python 是 PEP 668 外部管理，`uv pip --system` 会拒绝安装（请改用 venv 或 `uv tool install`）。
+处于虚拟环境（已激活，或当前目录有 `.venv`）时，垫片会装进该环境（用它自带的 pip，或用 `uv pip`）。不在任何环境中时，回退到 `uv tool`（隔离的 CLI 环境），例如 `pip install podman-compose==1.6.0` 会执行 `uv tool install podman-compose==1.6.0`。
 
 ### uvpin
 
