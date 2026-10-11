@@ -131,16 +131,21 @@ if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
     exec "\$SCRIPT_DIR/python" -m pip "\$@"
 fi
 
-# 2) 回退到安装时探测到的独立 pip（如由 python3-pip 安装）
+# 2) 回退到安装时探测到的独立 pip（如由 python3-pip 安装）。
+#    仅在没有激活的虚拟环境时使用，避免装到虚拟环境之外。
 FALLBACK_PIP="$fallback_pip"
-if [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
+if [ -z "\$VIRTUAL_ENV" ] && [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
     exec "\$FALLBACK_PIP" "\$@"
 fi
 
-# 3) 回退到 uv 自带的安装器
+# 3) 回退到 uv 自带的安装器。有激活的虚拟环境时装进该环境；没有时装进系统环境。
 UV="$real_uv"
 [ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
-exec "\$UV" pip "\$@"
+if [ -n "\$VIRTUAL_ENV" ]; then
+    exec "\$UV" pip "\$@"
+else
+    UV_SYSTEM_PYTHON=1 exec "\$UV" pip "\$@"
+fi
 EOF
 
     chmod +x "$file_path"

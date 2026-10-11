@@ -133,16 +133,22 @@ if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
     exec "\$SCRIPT_DIR/python" -m pip "\$@"
 fi
 
-# 2) Fall back to a standalone pip detected at install time (e.g. from python3-pip)
+# 2) Fall back to a standalone pip detected at install time (e.g. from python3-pip).
+#    Only when no virtualenv is active, so we never install outside an active venv.
 FALLBACK_PIP="$fallback_pip"
-if [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
+if [ -z "\$VIRTUAL_ENV" ] && [ -n "\$FALLBACK_PIP" ] && [ -x "\$FALLBACK_PIP" ]; then
     exec "\$FALLBACK_PIP" "\$@"
 fi
 
-# 3) Fall back to uv's own installer
+# 3) Fall back to uv's own installer. Inside a venv it targets that venv; with no
+#    active venv it installs into the non-virtual (system) environment.
 UV="$real_uv"
 [ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
-exec "\$UV" pip "\$@"
+if [ -n "\$VIRTUAL_ENV" ]; then
+    exec "\$UV" pip "\$@"
+else
+    UV_SYSTEM_PYTHON=1 exec "\$UV" pip "\$@"
+fi
 EOF
 
     chmod +x "$file_path"
