@@ -94,6 +94,10 @@ uvshim's answer is to give a managed system Python a **base environment** that:
 - does not affect the isolation of a project's `.venv`;
 - and, being self-built, is writable — which also solves the problem that a managed system forces special mechanisms to install tools, or blocks installing plain libraries.
 
+### Why environments collide
+
+This one is usually caused by environment configuration — most commonly the ordering of directories in `PATH`. uvshim cannot rewrite your shell configuration for you, so it does what it can: during installation it checks whether the shim directory actually takes effect first for `python` / `python3` / `pip` / `pip3`, and if not, prints a warning and suggests how to fix `PATH`.
+
 ### How It Works
 
 The installer deploys these files in the target directory (default `~/.local/bin`):
