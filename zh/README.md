@@ -33,20 +33,20 @@
 
 多版本 Python 管理，听起来简单，实操却处处是坑。下面这些问题，你是否也遇到过？
 
-- 有没有一个统一、全面的多版本 Python 管理工具？
+- [有没有一个统一、全面的多版本 Python 管理工具？](#为什么用-uv--而不是只用-pyenv)
   - `uv` 和 `pyenv` 我该选哪个？
   - `uv-python-shims`、`pipx`、裸用 `uv`…… 好像每个都只解决一部分，到底怎么组合？
   - 为什么它们都不能同时管好系统自带、第三方（Homebrew）、以及 uv 托管的 Python？
-- 为什么在一台机器上「装包」这么麻烦？
+- [为什么在一台机器上「装包」这么麻烦？](#pep-668-与受管理的环境)
   - Ubuntu 上系统自带的 Python，为什么官方让我用 `apt install python3-*` 装库，而不是 `pip`？
   - 照着装了 `python3-pip`，为什么 `pip install` 还是被拒绝、总弹 `externally-managed-environment`？
   - 为什么有时候只有 `python -m pip install` 能装，而 `pip install` 就是不行？
   - `pip install` 明明成功了，为什么 `import` 却找不到（包被装到了别的环境）？
-- 为什么切换 Python 版本之后，行为就不一致了？
+- [为什么切换 Python 版本之后，行为就不一致了？](#为什么切换版本后行为不一致)
   - macOS 上，为什么我切换了 Python 版本，`uv pip install` 仍然装进 Homebrew 的同一个目录？
   - 在多个 Python 版本之间切换时，为什么有的能 `pip` 装、有的不能？
   - 为什么 `which python3` 显示的，和命令实际执行的，可能不是同一个？
-- 为什么系统、项目、各类工具的环境总是互相干扰？
+- [为什么系统、项目、各类工具的环境总是互相干扰？](#环境为何互相干扰)
   - 用 `sudo pip` 装完，普通用户为什么又用不了？
   - 卸载某个 pip 包后，系统里的工具怎么突然坏了？
   - 为什么常看到 "Defaulting to user installation…"，装到了 `~/.local` 而不是系统目录？
