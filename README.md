@@ -2,15 +2,6 @@
 
 # uvshim — Global Python management shims for uv
 
-`uvshim` is a lightweight set of shell shims that route your system's `python` / `python3` / `pip` / `pip3` through [uv](https://github.com/astral-sh/uv), plus a context-aware version pinning tool called `uvpin`.
-
-In a nutshell:
-
-- **One set of commands, globally**: no matter how many Pythons are installed, `python` / `pip` always point to the environment that is correct for the current context.
-- **Virtualenv-aware**: if a `.venv` is active, its Python is used directly.
-- **Project-aware**: running `uvpin 3.12` inside a project pins that version for the project only.
-- **Loop-safe**: the shims remove their own directory from `PATH` before calling uv, so uv's Python probing never hits the shims again.
-
 ---
 
 ## Table of Contents

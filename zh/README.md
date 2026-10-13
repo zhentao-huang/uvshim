@@ -2,15 +2,6 @@
 
 > 英文文档: [../README.md](../README.md)
 
-`uvshim` 是一套轻量的 Shell 垫片（Shims），把系统里的 `python` / `python3` / `pip` / `pip3` 全部路由到 [uv](https://github.com/astral-sh/uv)，并额外提供一个环境感知的版本锁定工具 `uvpin`。
-
-一句话概括它的价值：
-
-- **全局只需要一套命令**：无论系统里装了几个 Python，`python` / `pip` 永远指向当前上下文正确的环境。
-- **自动感知虚拟环境**：激活了 `.venv` 就直接用 venv 里的 Python。
-- **自动感知项目目录**：在项目里执行 `uvpin 3.12` 就只给该项目锁定版本，互不干扰。
-- **防死循环**：垫片调用 uv 时会从 `PATH` 中剔除自身目录，避免 uv 探测 `python` 时再次命中垫片。
-
 ---
 
 ## 目录
