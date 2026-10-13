@@ -106,7 +106,7 @@ _ensure_base_venv() {
     _dir="$BASE_VENVS/$_key"
     if [ ! -x "$_dir/bin/python" ]; then
         mkdir -p "$BASE_VENVS" 2>/dev/null || return 1
-        "$UV" venv "$_dir" --python "$_real" >/dev/null 2>&1 || return 1
+        "$UV" venv "$_dir" --python "$_real" --system-site-packages >/dev/null 2>&1 || return 1
         printf '%s\n' "$_real" > "$_dir/.uvshim-base" 2>/dev/null
     fi
     [ -x "$_dir/bin/python" ] && printf '%s\n' "$_dir"

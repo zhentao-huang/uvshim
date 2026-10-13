@@ -73,7 +73,7 @@ pyenv 通过垫片（shims）让用户方便地切换各种 Python 版本；uv �
 ~/.local/share/uvshim/base-venvs/<key>
 ```
 
-（`<key>` 由 base python 的真实路径得到）。包和工具都装进它，系统 python 不受影响。uv 托管的 python 不建 base venv，其安装走 `uv tool`。
+（`<key>` 由 base python 的真实路径得到）。包和工具都装进它，系统 python 不受影响。base venv 以 `--system-site-packages` 创建，因此系统安装的 Python 包（如 Debian 的 `dist-packages`）仍可 import。uv 托管的 python 不建 base venv，其安装走 `uv tool`。
 
 > base venv 按需创建（由垫片创建，切换 python 时 `uvpin` 也会创建）。它**不会**在 shell 里被激活，因此不与项目虚拟环境冲突：项目 `.venv` 激活时优先，`deactivate` 后回落到垫片（进而用 base venv）。
 

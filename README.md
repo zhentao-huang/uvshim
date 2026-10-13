@@ -73,7 +73,7 @@ Distro/Homebrew Pythons are marked externally-managed (PEP 668), so packages can
 ~/.local/share/uvshim/base-venvs/<key>
 ```
 
-(keyed by the base Python's real path). Packages and tools install there, so the system Python stays untouched. uv-managed Pythons are not given a base venv; their installs go to `uv tool`.
+(keyed by the base Python's real path). Packages and tools install there, so the system Python stays untouched. The base venv is created with `--system-site-packages`, so OS-installed Python packages (e.g. Debian's `dist-packages`) remain importable. uv-managed Pythons are not given a base venv; their installs go to `uv tool`.
 
 > The base venv is created on demand (by the shims, and by `uvpin` when you switch Python). It is never "activated" in your shell, so it does not interfere with project virtualenvs: activating a project `.venv` takes precedence, and `deactivate` falls back to the shim (which then uses the base venv).
 
