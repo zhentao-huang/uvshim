@@ -6,7 +6,7 @@
 
 In a nutshell:
 
-- **One set of commands, globally**: no matter how many Pythons are installed, `python` / `pip` always point to the uv-managed version that is correct for the current context.
+- **One set of commands, globally**: no matter how many Pythons are installed, `python` / `pip` always point to the environment that is correct for the current context.
 - **Virtualenv-aware**: if a `.venv` is active, its Python is used directly.
 - **Project-aware**: running `uvpin 3.12` inside a project pins that version for the project only.
 - **Loop-safe**: the shims remove their own directory from `PATH` before calling uv, so uv's Python probing never hits the shims again.
@@ -156,7 +156,7 @@ python3 script.py
 Rules:
 
 1. **With an active virtualenv**, the environment's Python is used directly (`$VIRTUAL_ENV/bin/python`).
-2. **Without a virtualenv**, `uv run python` is used, and uv picks the Python according to the version pinned for the current directory.
+2. **Otherwise** the interpreter is resolved with `uv python find` (which respects a project `.venv` and `.python-version`). If it resolves to a system-managed base Python, its **user base venv** is used (see [How It Works](#how-it-works)).
 
 ### pip / pip3
 
@@ -250,16 +250,16 @@ Example output:
 ```
 🗑️ Found and removed shim: /home/user/.local/bin/python
 ...
-🎉 Cleanup complete! Removed 5 uv shim script(s) above.
+🎉 Cleanup complete! Removed 6 uv shim script(s) above.
 ```
 
 ---
 
 ## FAQ
 
-**Q: `python` fails with "uv not found in the system or current directory".**
+**Q: `python` fails with "uvshim: could not resolve a Python interpreter".**
 
-A: Install uv first.
+A: The shims need `uv` on `PATH` to resolve an interpreter. Install uv first.
 
 ```sh
 command -v uv   # should print the path to uv
@@ -281,7 +281,7 @@ A: No. The shims are just standalone shell scripts, and the uninstaller only del
 
 **Q: What happens if a virtualenv / conda is already active?**
 
-A: If `VIRTUAL_ENV` is set, the `python` shim calls that environment's Python directly, bypassing uv. A conda environment that does not set `VIRTUAL_ENV` is handled by the normal logic and passed to uv.
+A: If `VIRTUAL_ENV` is set, the shim uses that environment's Python directly. A conda environment that does not set `VIRTUAL_ENV` goes through the normal resolution (`uv python find` → base venv / tool / plain).
 
 **Q: How do I isolate dependencies in a project?**
 

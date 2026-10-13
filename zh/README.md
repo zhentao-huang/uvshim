@@ -6,7 +6,7 @@
 
 一句话概括它的价值：
 
-- **全局只需要一套命令**：无论系统里装了几个 Python，`python` / `pip` 永远指向 uv 托管的、当前上下文正确的版本。
+- **全局只需要一套命令**：无论系统里装了几个 Python，`python` / `pip` 永远指向当前上下文正确的环境。
 - **自动感知虚拟环境**：激活了 `.venv` 就直接用 venv 里的 Python。
 - **自动感知项目目录**：在项目里执行 `uvpin 3.12` 就只给该项目锁定版本，互不干扰。
 - **防死循环**：垫片调用 uv 时会从 `PATH` 中剔除自身目录，避免 uv 探测 `python` 时再次命中垫片。
@@ -155,7 +155,7 @@ python3 script.py
 行为规则：
 
 1. **有已激活的虚拟环境**时，直接使用该环境内的 Python（`$VIRTUAL_ENV/bin/python`）。
-2. **没有虚拟环境**时，交给 `uv run python`，由 uv 按当前目录的版本锁定规则选择 Python。
+2. **否则**用 `uv python find` 解析解释器（尊重项目 `.venv` 与 `.python-version`）。若解析到系统 managed 的 base python，则使用它的**用户级 base venv**（见[工作原理](#工作原理)）。
 
 ### pip / pip3
 
@@ -241,16 +241,16 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/zh/remove
 ```
 🗑️ 发现并移除垫片: /home/user/.local/bin/python
 ...
-🎉 清理完成！成功移除了以上 5 个 uv 垫片脚本。
+🎉 清理完成！成功移除了以上 6 个 uv 垫片脚本。
 ```
 
 ---
 
 ## 常见问题
 
-**Q：`python` 执行后报错“未在系统或当前目录中找到 uv”？**
+**Q：`python` 执行后报错“uvshim: 无法解析 Python 解释器”？**
 
-A：请先安装 uv目录。
+A：垫片需要 `uv`（在 `PATH` 上）来解析解释器。请先安装 uv。
 
 ```sh
 command -v uv   # 应能输出 uv 的路径
@@ -272,7 +272,7 @@ A：不会。垫片只是几个独立的 Shell 脚本；卸载脚本仅删除带
 
 **Q：已经激活了 virtualenv / conda，会怎样？**
 
-A：若设置了 `VIRTUAL_ENV`，`python` 垫片会直接调用该环境内的 Python，不经过 uv。conda 环境若未设置 `VIRTUAL_ENV`，则按普通逻辑交给 uv 处理。
+A：若设置了 `VIRTUAL_ENV`，垫片会直接使用该环境内的 Python。未设置 `VIRTUAL_ENV` 的 conda 环境则走正常解析（`uv python find` → base venv / tool / plain）。
 
 **Q：想在项目里隔离依赖怎么办？**
 
