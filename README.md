@@ -75,7 +75,9 @@ Modern base Pythons are guarded by [PEP 668](https://peps.python.org/pep-0668/):
 
 For the same safety reason, Ubuntu ships Python libraries as OS packages (`apt install python3-*`) instead of allowing `pip`. And `python3-pip` is not meant for the system Python: it mainly serves virtualenvs, is not installed by default, and even when present it still refuses system-wide installs.
 
-Now put several `python` / `pip` executables on `PATH` (system, Homebrew, uv, venvs) and the problem compounds: the first `python` and the first `pip` may not belong together, so packages land in an environment the running Python never imports from. **This is the pain point uvshim solves.**
+Now put several `python` / `pip` executables on `PATH` (system, Homebrew, uv, venvs) and the problem compounds: the first `python` and the first `pip` may not belong together, so packages land in an environment the running Python never imports from.
+
+This is the pain point uvshim solves. Its **pip shims** always install via `uv pip`, which sidesteps the question of whether a `pip` module even exists.
 
 ### Why versions behave differently
 
@@ -87,9 +89,10 @@ Because of PEP 668, every Python installation is a different world: some must be
 
 uvshim's answer is to give a managed system Python a **base environment** that:
 
-- is independent of the system's (unwritable) environment,
-- can still use the packages already installed in the system environment,
-- and does not affect the isolation of a project's `.venv`.
+- is independent of the system's (unwritable) environment, without affecting the native libraries the system uses;
+- can still use the packages already installed in the system environment;
+- does not affect the isolation of a project's `.venv`;
+- and, being self-built, is writable — which also solves the problem that a managed system forces special mechanisms to install tools, or blocks installing plain libraries.
 
 ### How It Works
 
