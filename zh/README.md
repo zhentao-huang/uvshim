@@ -31,7 +31,6 @@
 - [为什么在一台机器上「装包」这么麻烦？](#pep-668-与受管理的环境)
   - Ubuntu 上系统自带的 Python，为什么官方让我用 `apt install python3-*` 装库，而不是 `pip`？
   - 照着装了 `python3-pip`，为什么 `pip install` 还是被拒绝、总弹 `externally-managed-environment`？
-  - 为什么有时候只有 `python -m pip install` 能装，而 `pip install` 就是不行？
   - `pip install` 明明成功了，为什么 `import` 却找不到（包被装到了别的环境）？
 - [为什么切换 Python 版本之后，行为就不一致了？](#为什么切换版本后行为不一致)
   - macOS 上，为什么我切换了 Python 版本，`uv pip install` 仍然装进 Homebrew 的同一个目录？
@@ -40,6 +39,7 @@
 - [为什么系统、项目、各类工具的环境总是互相干扰？](#环境为何互相干扰)
   - 用 `sudo pip` 装完，普通用户为什么又用不了？
   - 卸载某个 pip 包后，系统里的工具怎么突然坏了？
+  - 为什么有时候只有 `python -m pip install` 能装，而 `pip install` 就是不行？
   - 为什么常看到 "Defaulting to user installation…"，装到了 `~/.local` 而不是系统目录？
 
 ## 原理和设计
@@ -54,7 +54,7 @@ uv 是一套现代、基于 Rust 的 Python 工具链。相比 pyenv，它明显
 
 但 uv 有一个关键缺口：**它没有 pyenv 垫片那样的、全局且上下文感知的 `python` / `pip`。**
 
-两者都不完美。于是我们以 uv 为基础来补全它的功能，本工具由此而生。
+两者都不完美。于是我们以 uv 为基础来补全它的功能，uvshim由此而生。
 
 ### PEP 668 与「受管理」的环境
 
@@ -64,19 +64,18 @@ uv 是一套现代、基于 Rust 的 Python 工具链。相比 pyenv，它明显
 - **Homebrew 的 Python**——同样标记为受管理。
 - **uv 托管的 Python**——也一样。
 
-出于同样的安全考虑，Ubuntu 把 Python 库做成系统包（`apt install python3-*`），而不是放任 pip；`python3-pip` 也并非为系统 Python 服务——它主要用于虚拟环境，默认不安装，即便装了，往系统里装包仍会被拦。
-
-再叠加 `PATH` 上并存多个 `python` 与 `pip`（系统、Homebrew、uv、venv），问题就更复杂：先被搜索到的 `python` 与先被搜索到的 `pip` 可能根本不是一套，包被装进了运行中的 Python 从不 import 的环境。
+出于同样的安全考虑，Ubuntu 把 Python 库做成系统包（`apt install python3-*`），而不是放任 pip任意安装包，导致依赖关系的导常，影响系统运行；`python3-pip` 也并非为系统 Python 服务——它主要用于虚拟环境，默认不安装，即便装了，往系统里装包仍会被拦。
+这从普通用户的角度来看，是相当麻烦的，为什么pip包装不上，老是一堆错误？有了警告我怎么办？
 
 这正是uvshim要解决的痛点。uvshim产生的**pip垫片**，一律采用`uv pip`来安装包，避免了pip模块存不存在的问题。
 
 ### 为什么切换版本后行为不一致
 
-由于 PEP 668 的存在，每个 Python 安装都各不相同：有的必须被保护，有的需要能被扩展。而现有工具各有短板：
+由于 PEP 668 的存在，每个 Python 安装需求都各不相同：有的必须被保护，有的需要能被扩展。而现有工具各有短板：
 
 - **pyenv 的垫片**能切换解释器，却完全不处理这个问题。
-- **pipx / `uv tool`**能安装隔离的 CLI 工具，却无法安装纯库。
-- **uv**可以只用它自己托管的 Python——但这样要么能管的 Python 太少，要么把系统已有的同版本再装一份，显得冗余。
+- **pipx** / **uv tool** 能安装隔离的 CLI 工具，却无法安装纯库。
+- **uv**可以只用它自己托管的 Python——但这样要么用不上系统Python版本，要么同版本再装一份，显得冗余。
 
 uvshim 的应对是：为每个受管的 Python 提供一个**基础环境**，它
 
@@ -84,10 +83,15 @@ uvshim 的应对是：为每个受管的 Python 提供一个**基础环境**，�
 - 又能利用系统环境中已安装的包——Ubuntu 仍可继续安装它自己的 `python3-*` 包，装完也能被 uvshim 的环境使用（见[常见问题里关于 apt + pip 的说明](#常见问题)）；
 - 同时不影响项目 venv 的隔离。
 - 由于是自建的环境，是可写的。也解决了受管理的 Python 依赖特别机制来安装工具、或不能安装纯库的问题。
+- 不影响原本的uv命令的使用
 
 ### 环境为何互相干扰
 
-这个问题通常是环境配置造成的——最常见的是 `PATH` 中目录的先后顺序。uvshim 无法替你修改 shell 配置，所以它做了力所能及的事：在安装时检查垫片目录是否对 `python` / `python3` / `pip` / `pip3` 优先生效，若不是，就给出警告并建议如何调整 `PATH`。
+有时我们发现pip安装包会失败，就转而使用`sudo pip`， 这打破了系统对python的保护，所以一般是系统封锁了，会有很出提示，用户最好也不要继续执行。  
+uvshim不会侵入系统，所以完全不需要，也不应该使用`sudo pip install`这样的方式，它会安装的**基础环境**，是用户目录的，完全用户掌控，删除也不影响系统工作。  
+也不需要用户考虑`pip install`，还是`python -m pip install`这样的问题，直接都`pip install`，uvshim保证这条命令可以在你任意uvpin的python版本上都可以工作正常。  
+  
+另外 `PATH` 中目录的先后顺序，也是导致python和pip相互独立不配合的问题。uvshim 无法替你修改 shell 配置，所以它做了力所能及的事：在安装时检查垫片目录是否对 `python` / `python3` / `pip` / `pip3` 优先生效，若不是，就给出警告并建议如何调整 `PATH`。
 
 ### 垫片设计
 
