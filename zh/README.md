@@ -81,7 +81,7 @@ uv 是一套现代、基于 Rust 的 Python 工具链。相比 pyenv，它明显
 uvshim 的应对是：为每个受管的 Python 提供一个**基础环境**，它
 
 - 独立于系统那个不可写的环境，不影响系统使用的原生库；
-- 又能利用系统环境中已安装的包；
+- 又能利用系统环境中已安装的包——Ubuntu 仍可继续安装它自己的 `python3-*` 包，装完也能被 uvshim 的环境使用（见[常见问题里关于 apt + pip 的说明](#常见问题)）；
 - 同时不影响项目 venv 的隔离。
 - 由于是自建的环境，是可写的。也解决了受管理的 Python 依赖特别机制来安装工具、或不能安装纯库的问题。
 
@@ -333,6 +333,10 @@ pip install <package>
 **Q：`pip --version` 打印的是 uvshim 的提示，而不是 pip 版本号。**
 
 A：本垫片由 `uv pip` 驱动、不使用 pip 包，所以 uvshim 会拦截 `pip --version` / `-V` 并打印一句提示，避免让 `uv pip` 报出难看的错误。其它命令（`pip install`、`pip list` 等）仍通过 `uv pip` 正常工作。
+
+**Q：我先 `apt install python3-requests`（或 `python3-venv` 等），之后又 `pip install requests`，会冲突吗？**
+
+A：不会。apt 包安装在系统 Python 里（如 `/usr/lib/python3/dist-packages`），不会被改动。由于 base venv 以 `--system-site-packages` 创建，该包在 uvshim 环境里也能 import；而 `pip install` 只写进 base venv 自己的 `site-packages`，在该环境中优先（和普通 venv 一样覆盖系统那份）。系统 Python 与系统工具仍使用 apt 那份。一句话：`python3-*` 包继续可用，你的 `pip` 安装只会在 **uvshim 环境内** 安全地覆盖它们，**绝不改动系统**。
 
 ---
 

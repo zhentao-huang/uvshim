@@ -81,7 +81,7 @@ Because of PEP 668, every Python installation is a different world: some must be
 uvshim's answer is to give every managed Python a **base environment** that:
 
 - is independent of the system's (unwritable) environment, without affecting the native libraries the system uses;
-- can still use the packages already installed in the system environment;
+- can still use the packages already installed in the system environment — on Ubuntu you can keep installing its own `python3-*` packages, and they become usable from the uvshim environment too (see the [FAQ on `apt` + `pip`](#faq));
 - does not affect the isolation of a project's `.venv`;
 - and, being self-built, is writable — which also solves the problem that a managed Python forces special mechanisms to install tools, or blocks installing plain libraries.
 
@@ -342,6 +342,10 @@ pip install <package>
 **Q: `pip --version` prints a uvshim notice instead of a pip version.**
 
 A: The shim is backed by `uv pip` and does not use the `pip` package, so uvshim intercepts `pip --version` / `-V` and prints a short notice instead of letting `uv pip` error out. Other commands (`pip install`, `pip list`, ...) work normally via `uv pip`.
+
+**Q: If I `apt install python3-requests` (or `python3-venv`, etc.) and later `pip install requests`, do they conflict?**
+
+A: No. The apt package is installed into the system Python (e.g. `/usr/lib/python3/dist-packages`) and is left untouched. Because the base venv is created with `--system-site-packages`, that package is importable from the uvshim environment too; and `pip install` writes only into the base venv's own `site-packages`, which takes precedence there (overriding the system copy, exactly as any venv does). The system Python and system tools keep using the apt copy. In short: `python3-*` packages remain usable, and your `pip` installs safely override them **inside** the uvshim environment — never in the system.
 
 ---
 
