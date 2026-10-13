@@ -31,7 +31,6 @@ Managing several Python versions sounds simple until you actually try. Do any of
 - [Why is installing packages on a single machine so painful?](#the-pep-668-reality)
   - On Ubuntu, why does the system Python tell me to use `apt install python3-*` instead of `pip`?
   - I installed `python3-pip`, yet `pip install` still refuses with `externally-managed-environment`. Why?
-  - Why does only `python -m pip install` work, while `pip install` does not?
   - `pip install` succeeded, so why can't I `import` the package (it went to some other environment)?
 - [Why does everything behave differently once you switch Python versions?](#why-versions-behave-differently)
   - On macOS, why does `uv pip install` still land in the same Homebrew directory after I switch Python?
@@ -40,6 +39,7 @@ Managing several Python versions sounds simple until you actually try. Do any of
 - [Why do the system, project, and per-tool environments keep stepping on each other?](#why-environments-collide)
   - I installed with `sudo pip`; why can't my normal user use it?
   - Uninstalling a pip package suddenly broke a system tool — why?
+  - Why does only `python -m pip install` work, while `pip install` does not?
   - Why do I keep seeing "Defaulting to user installation…", installing into `~/.local` instead of the system directory?
 
 ## Principles and Design
@@ -64,7 +64,9 @@ Modern base Pythons are guarded by [PEP 668](https://peps.python.org/pep-0668/):
 - **Homebrew's Python** — likewise marked managed.
 - **uv's own Pythons** — marked managed as well.
 
-For the same safety reason, Ubuntu ships Python libraries as OS packages (`apt install python3-*`) instead of allowing `pip`. And `python3-pip` is not meant for the system Python: it mainly serves virtualenvs, is not installed by default, and even when present it still refuses system-wide installs.
+For the same safety reason, Ubuntu ships Python libraries as OS packages (`apt install python3-*`) instead of letting `pip` install freely and create dependency conflicts that can break the system. And `python3-pip` is not meant for the system Python: it mainly serves virtualenvs, is not installed by default, and even when present it still refuses system-wide installs.
+
+From a normal user's point of view this is painful: why won't `pip install` work? What are all these errors? And what should I do about the warning?
 
 Now put several `python` / `pip` executables on `PATH` (system, Homebrew, uv, venvs) and the problem compounds: the first `python` and the first `pip` may not belong together, so packages land in an environment the running Python never imports from.
 
@@ -72,22 +74,29 @@ This is the pain point uvshim solves. Its **pip shims** always install via `uv p
 
 ### Why versions behave differently
 
-Because of PEP 668, every Python installation is a different world: some must be protected, others need to be extensible. Existing tools each fall short:
+Because of PEP 668, every Python installation has different needs: some must be protected, others need to be extensible. Existing tools each fall short:
 
 - **pyenv's shims** can switch the interpreter, but do not address this at all.
-- **pipx / `uv tool`** install isolated CLI tools, but cannot install plain libraries.
-- **uv** can restrict itself to uv-managed Pythons — which either manages too few Pythons, or duplicates a system version into a redundant copy.
+- **pipx** / **`uv tool`** install isolated CLI tools, but cannot install plain libraries.
+- **uv** can restrict itself to uv-managed Pythons — but then it doesn't use the system's versions, or installs a second copy of the same version, which is redundant.
 
 uvshim's answer is to give every managed Python a **base environment** that:
 
 - is independent of the system's (unwritable) environment, without affecting the native libraries the system uses;
 - can still use the packages already installed in the system environment — on Ubuntu you can keep installing its own `python3-*` packages, and they become usable from the uvshim environment too (see the [FAQ on `apt` + `pip`](#faq));
 - does not affect the isolation of a project's `.venv`;
-- and, being self-built, is writable — which also solves the problem that a managed Python forces special mechanisms to install tools, or blocks installing plain libraries.
+- and, being self-built, is writable — which also solves the problem that a managed Python forces special mechanisms to install tools, or blocks installing plain libraries;
+- and does not affect your normal `uv` usage.
 
 ### Why environments collide
 
-This one is usually caused by environment configuration — most commonly the ordering of directories in `PATH`. uvshim cannot rewrite your shell configuration for you, so it does what it can: during installation it checks whether the shim directory actually takes effect first for `python` / `python3` / `pip` / `pip3`, and if not, prints a warning and suggests how to fix `PATH`.
+When a `pip install` fails, people often reach for `sudo pip`. That breaks the system's Python protection — which is exactly why the system blocks it and prints a (long) warning; you're better off not forcing it.
+
+uvshim never intrudes on the system, so you never need — and should never use — `sudo pip install`. The **base environment** it installs into lives in your home directory, is fully under your control, and can be deleted without affecting the system.
+
+You also don't need to worry about whether to use `pip install` or `python -m pip install` — just use `pip install`; uvshim guarantees it works on any Python version you've pinned with `uvpin`.
+
+Separately, the ordering of directories in `PATH` is what makes a `python` and a `pip` fail to cooperate. uvshim cannot rewrite your shell configuration, so it does what it can: during installation it checks whether the shim directory takes effect first for `python` / `python3` / `pip` / `pip3`, and if not, warns you and suggests how to fix `PATH`.
 
 ### Shim Design
 
