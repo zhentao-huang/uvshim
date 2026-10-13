@@ -33,39 +33,23 @@ In a nutshell:
 
 Managing several Python versions sounds simple until you actually try. Do any of these sound familiar?
 
-**Layer 1 — Four big questions**
-
-1. Is there one unified, comprehensive tool to manage all the Pythons?
-2. Why is installing packages on a single machine so painful?
-3. Why does everything behave differently once you switch Python versions?
-4. Why do the system, project, and per-tool environments keep stepping on each other?
-
-**Layer 2 — The concrete pain points**
-
-**1) Choosing a tool**
-
-- `uv` or `pyenv` — which should I use?
-- `uv-python-shims`, `pipx`, plain `uv`… each seems to solve only part of it. How do they fit together?
-- Why does none of them handle the OS, Homebrew, and uv-managed Pythons together?
-
-**2) Installing packages (`pip install`)**
-
-- On Ubuntu, why does the system Python tell me to use `apt install python3-*` instead of `pip`?
-- I installed `python3-pip`, yet `pip install` still refuses with `externally-managed-environment`. Why?
-- Why does only `python -m pip install` work, while `pip install` does not?
-- `pip install` succeeded, so why can't I `import` the package (it went to some other environment)?
-
-**3) Switching versions**
-
-- On macOS, why does `uv pip install` still land in the same Homebrew directory after I switch Python?
-- When switching between Python versions, why can I `pip install` into some but not others?
-- Why can `which python3` disagree with the Python that actually runs?
-
-**4) Conflicts**
-
-- I installed with `sudo pip`; why can't my normal user use it?
-- Uninstalling a pip package suddenly broke a system tool — why?
-- Why do I keep seeing "Defaulting to user installation…", installing into `~/.local` instead of the system directory?
+- Is there one unified, comprehensive tool to manage all the Pythons?
+  - `uv` or `pyenv` — which should I use?
+  - `uv-python-shims`, `pipx`, plain `uv`… each seems to solve only part of it. How do they fit together?
+  - Why does none of them handle the OS, Homebrew, and uv-managed Pythons together?
+- Why is installing packages on a single machine so painful?
+  - On Ubuntu, why does the system Python tell me to use `apt install python3-*` instead of `pip`?
+  - I installed `python3-pip`, yet `pip install` still refuses with `externally-managed-environment`. Why?
+  - Why does only `python -m pip install` work, while `pip install` does not?
+  - `pip install` succeeded, so why can't I `import` the package (it went to some other environment)?
+- Why does everything behave differently once you switch Python versions?
+  - On macOS, why does `uv pip install` still land in the same Homebrew directory after I switch Python?
+  - When switching between Python versions, why can I `pip install` into some but not others?
+  - Why can `which python3` disagree with the Python that actually runs?
+- Why do the system, project, and per-tool environments keep stepping on each other?
+  - I installed with `sudo pip`; why can't my normal user use it?
+  - Uninstalling a pip package suddenly broke a system tool — why?
+  - Why do I keep seeing "Defaulting to user installation…", installing into `~/.local` instead of the system directory?
 
 ## How It Works
 
