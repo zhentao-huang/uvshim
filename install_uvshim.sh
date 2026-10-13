@@ -29,16 +29,16 @@ show_install_help() {
     echo "  - uvpin            : context-aware Python version pinning tool, replaces \`uv python pin\`"
     echo "  - _uvshim_resolve  : internal helper that resolves the effective environment"
     echo ""
-    echo "💡 System-managed Pythons (distro/Homebrew) get a per-user base venv under"
+    echo "💡 Managed Pythons get a per-user base venv under"
     echo "   ~/.local/share/uvshim/base-venvs so packages and tools can be installed"
-    echo "   without touching the system Python."
+    echo "   without modifying the base Python."
     echo "--------------------------------------------------------"
 }
 
 # Shared runtime resolver: a tiny script the python/pip shims call to figure out
 # which environment to use. Prints "<mode> <path>":
 #   venv  <dir>    -> use <dir>/bin/python; installs go into that virtualenv
-#   tool  <python> -> uv-managed base python; installs go to `uv tool`
+#   tool  <python> -> fallback: base venv could not be created, use `uv tool`
 #   plain <python> -> non-managed base python (pyenv/official build); use python -m pip
 create_resolve_helper() {
     local file_path="$TARGET_DIR/_uvshim_resolve"
@@ -84,22 +84,12 @@ _venv_root() {
     [ -f "$_root/pyvenv.cfg" ] && printf '%s\n' "$_root"
 }
 
-# Is $1 under uv's managed Python directory?
-_is_uv_managed() {
-    _uvd=$("$UV" python dir 2>/dev/null) || return 1
-    _dir=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P)
-    case "$_dir" in
-        "$_uvd"|"$_uvd"/*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
 # Is $1 an externally-managed (PEP 668) base python (not a venv)?
 _is_managed() {
     "$1" -c 'import sys,sysconfig,os; raise SystemExit(0 if sys.prefix==sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null
 }
 
-# Ensure (create if missing) the per-user base venv for a system-managed python $1
+# Ensure (create if missing) the per-user base venv for a managed python $1
 _ensure_base_venv() {
     _real=$(_abspath "$1")
     _key=$(printf '%s' "$_real" | sed 's#^/##; s#/#-#g')
@@ -129,13 +119,7 @@ if [ -n "$VROOT" ]; then
     exit 0
 fi
 
-# 4) uv-managed base python: not writable -> tool mode
-if _is_uv_managed "$PY"; then
-    printf 'tool %s\n' "$PY"
-    exit 0
-fi
-
-# 5) System-managed base python: use its per-user base venv
+# 4) Externally-managed base python: use its base venv
 if _is_managed "$PY"; then
     BV=$(_ensure_base_venv "$PY")
     if [ -n "$BV" ]; then
@@ -146,7 +130,7 @@ if _is_managed "$PY"; then
     exit 0
 fi
 
-# 6) Non-managed base python (pyenv / python.org / source build)
+# 5) Non-managed base python (pyenv / python.org / source build)
 printf 'plain %s\n' "$PY"
 exit 0
 EOF
@@ -323,7 +307,7 @@ case "$TARGET_TYPE" in
         ;;
 esac
 
-# If the new interpreter is a system-managed python, make sure its per-user
+# If the new interpreter is a managed python, make sure its per-user
 # base venv exists (creating it on demand).
 "$SCRIPT_DIR/_uvshim_resolve" >/dev/null 2>&1 || true
 EOF

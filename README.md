@@ -87,12 +87,12 @@ Because of PEP 668, every Python installation is a different world: some must be
 - **pipx / `uv tool`** install isolated CLI tools, but cannot install plain libraries.
 - **uv** can restrict itself to uv-managed Pythons — which either manages too few Pythons, or duplicates a system version into a redundant copy.
 
-uvshim's answer is to give a managed system Python a **base environment** that:
+uvshim's answer is to give every managed Python a **base environment** that:
 
 - is independent of the system's (unwritable) environment, without affecting the native libraries the system uses;
 - can still use the packages already installed in the system environment;
 - does not affect the isolation of a project's `.venv`;
-- and, being self-built, is writable — which also solves the problem that a managed system forces special mechanisms to install tools, or blocks installing plain libraries.
+- and, being self-built, is writable — which also solves the problem that a managed Python forces special mechanisms to install tools, or blocks installing plain libraries.
 
 ### Why environments collide
 
@@ -112,17 +112,14 @@ The installer deploys these files in the target directory (default `~/.local/bin
 The `python` and `pip` shims delegate to `_uvshim_resolve`, which prints `<mode> <path>`:
 
 - `venv <dir>` — an activated virtualenv, a project `.venv`, or a **user base venv** (see below);
-- `tool <python>` — a uv-managed base Python (not writable): `pip` installs go to `uv tool`;
+- `tool <python>` — fallback only (if the base venv cannot be created): `pip` installs go to `uv tool`;
 - `plain <python>` — a non-managed base Python (pyenv / python.org / source build): `pip` uses `python -m pip`.
 
-Resolution order: `VIRTUAL_ENV` → `uv python find` (project `.venv` / `.python-version`) → per-user base venv / tool / plain.
+Resolution order: `VIRTUAL_ENV` → `uv python find` (project `.venv` / `.python-version`) → per-user base venv / plain.
 
 ### User-level base venv
 
-It applies only to **system-managed** Pythons:
-
-1. Only system-managed Pythons (distro/Homebrew, marked externally-managed under PEP 668) get a base venv — you cannot install into them directly.
-2. uv-managed Pythons do not; uv manages their environments itself (a venv via `uv venv` / `uv add`, or `uv tool`). `uv pip install` always needs a target environment — a venv, or the system interpreter via `--system` — which is why no base Python can be installed into directly.
+It applies to every **managed** Python (marked externally-managed, PEP 668). They cannot be installed into directly, so uvshim gives each one a per-user base venv.
 
 uvshim creates that base venv under:
 
@@ -130,7 +127,7 @@ uvshim creates that base venv under:
 ~/.local/share/uvshim/base-venvs/<key>
 ```
 
-(`<key>` is derived from the base Python's real path, i.e. one base venv per installation). Packages and tools install there, so the system Python stays untouched. It is created with `--system-site-packages`, so OS-installed Python packages (e.g. Debian's `dist-packages`) remain importable.
+(`<key>` is derived from the base Python's real path, i.e. one base venv per installation). Packages and tools install there, so the base Python stays untouched. It is created with `--system-site-packages`, so OS-installed Python packages (e.g. Debian's `dist-packages`) remain importable.
 
 > The base venv is created on demand (by the shims, and by `uvpin` when you switch Python). It is never "activated" in your shell, so it does not interfere with project virtualenvs: activating a project `.venv` takes precedence, and `deactivate` falls back to the shim (which then uses the base venv).
 
@@ -215,7 +212,7 @@ python3 script.py
 Rules:
 
 1. **With an active virtualenv**, the environment's Python is used directly (`$VIRTUAL_ENV/bin/python`).
-2. **Otherwise** the interpreter is resolved with `uv python find` (which respects a project `.venv` and `.python-version`). If it resolves to a system-managed base Python, its **user base venv** is used (see [Shim Design](#shim-design)).
+2. **Otherwise** the interpreter is resolved with `uv python find` (which respects a project `.venv` and `.python-version`). If it resolves to a managed base Python, its **user base venv** is used (see [Shim Design](#shim-design)).
 
 ### pip / pip3
 
@@ -228,7 +225,7 @@ pip3 install "flask>=3.0"
 
 `pip` is automatically bound to the version behind `python` in the current context, so you never need to write `python -m pip` manually.
 
-`pip` installs via `uv pip` into the effective environment — an activated virtualenv, a project `.venv`, or the per-user base venv for a system Python. For a uv-managed base Python it falls back to `uv tool` (isolated CLI environments). Note that `uv tool` is only for CLI tools; install pure libraries into a venv.
+`pip` installs via `uv pip` into the effective environment — an activated virtualenv, a project `.venv`, or the per-user base venv for a managed Python. (`uv tool` is only a fallback if the base venv cannot be created, and is meant for CLI tools.)
 
 > Note: in shim mode it is **not** recommended to install into the system/uv global environment from an arbitrary directory. To isolate dependencies per project, create a virtualenv first:
 >
@@ -280,7 +277,7 @@ The uvpin query classifies the context into three kinds:
 
 ## pip Backends
 
-`pip` / `pip3` always install through `uv pip` into the effective environment — an activated virtualenv, a project `.venv`, or the per-user base venv for system Pythons. For a uv-managed base Python (no writable environment) it falls back to `uv tool`. Because `uv pip` binds to an explicit environment, this works on macOS + Homebrew too.
+`pip` / `pip3` always install through `uv pip` into the effective environment — an activated virtualenv, a project `.venv`, or the per-user base venv for a managed Python. Because `uv pip` binds to an explicit environment, this works on macOS + Homebrew too.
 
 ---
 
@@ -340,7 +337,7 @@ A: No. The shims are just standalone shell scripts, and the uninstaller only del
 
 **Q: What happens if a virtualenv / conda is already active?**
 
-A: If `VIRTUAL_ENV` is set, the shim uses that environment's Python directly. A conda environment that does not set `VIRTUAL_ENV` goes through the normal resolution (`uv python find` → base venv / tool / plain).
+A: If `VIRTUAL_ENV` is set, the shim uses that environment's Python directly. A conda environment that does not set `VIRTUAL_ENV` goes through the normal resolution (`uv python find` → base venv / plain).
 
 **Q: How do I isolate dependencies in a project?**
 

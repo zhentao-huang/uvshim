@@ -28,15 +28,15 @@ show_install_help() {
     echo "  - uvpin            : 上下文环境感知的 Python 版本一键锁定工具, 替代\`uv python pin\`"
     echo "  - _uvshim_resolve  : 内部辅助脚本，用于解析当前生效的环境"
     echo ""
-    echo "💡 系统 managed 的 python（发行版/Homebrew）会获得一个用户级 base venv，位于"
-    echo "   ~/.local/share/uvshim/base-venvs，从而可在不影响系统 python 的前提下安装包和工具。"
+    echo "💡 managed 的 python 会获得一个用户级 base venv，位于"
+    echo "   ~/.local/share/uvshim/base-venvs，从而可在不改动 base python 的前提下安装包和工具。"
     echo "--------------------------------------------------------"
 }
 
 # 共享的运行时解析器：python/pip 垫片会调用它来判断该用哪个环境。
 # 输出 "<模式> <路径>":
 #   venv  <dir>    -> 用 <dir>/bin/python；安装会进该虚拟环境
-#   tool  <python> -> uv 托管的 base python；安装走 `uv tool`
+#   tool  <python> -> 兜底：base venv 无法创建时，改用 `uv tool`
 #   plain <python> -> 非 managed 的 base python（pyenv/官方安装）；用 python -m pip
 create_resolve_helper() {
     local file_path="$TARGET_DIR/_uvshim_resolve"
@@ -82,22 +82,12 @@ _venv_root() {
     [ -f "$_root/pyvenv.cfg" ] && printf '%s\n' "$_root"
 }
 
-# $1 是否位于 uv 托管的 python 目录之下？
-_is_uv_managed() {
-    _uvd=$("$UV" python dir 2>/dev/null) || return 1
-    _dir=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P)
-    case "$_dir" in
-        "$_uvd"|"$_uvd"/*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
 # $1 是否是 externally-managed（PEP 668）的 base python（非 venv）？
 _is_managed() {
     "$1" -c 'import sys,sysconfig,os; raise SystemExit(0 if sys.prefix==sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null
 }
 
-# 确保系统 managed 的 base python $1 拥有用户级 base venv（不存在则创建）
+# 确保 managed 的 base python $1 拥有用户级 base venv（不存在则创建）
 _ensure_base_venv() {
     _real=$(_abspath "$1")
     _key=$(printf '%s' "$_real" | sed 's#^/##; s#/#-#g')
@@ -127,13 +117,7 @@ if [ -n "$VROOT" ]; then
     exit 0
 fi
 
-# 4) uv 托管的 base python：不可写 -> tool 模式
-if _is_uv_managed "$PY"; then
-    printf 'tool %s\n' "$PY"
-    exit 0
-fi
-
-# 5) 系统 managed 的 base python：使用它的用户级 base venv
+# 4) externally-managed 的 base python：使用它的用户级 base venv
 if _is_managed "$PY"; then
     BV=$(_ensure_base_venv "$PY")
     if [ -n "$BV" ]; then
@@ -144,7 +128,7 @@ if _is_managed "$PY"; then
     exit 0
 fi
 
-# 6) 非 managed 的 base python（pyenv / 官方安装 / 自编译）
+# 5) 非 managed 的 base python（pyenv / 官方安装 / 自编译）
 printf 'plain %s\n' "$PY"
 exit 0
 EOF
@@ -321,7 +305,7 @@ case "$TARGET_TYPE" in
         ;;
 esac
 
-# 若新解释器是系统 managed 的 python，确保其用户级 base venv 存在（按需创建）
+# 若新解释器是 managed 的 python，确保其用户级 base venv 存在（按需创建）
 "$SCRIPT_DIR/_uvshim_resolve" >/dev/null 2>&1 || true
 EOF
     chmod +x "$file_path"

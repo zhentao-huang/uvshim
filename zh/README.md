@@ -87,12 +87,12 @@ uv 是一套现代、基于 Rust 的 Python 工具链。相比 pyenv，它明显
 - **pipx / `uv tool`**能安装隔离的 CLI 工具，却无法安装纯库。
 - **uv**可以只用它自己托管的 Python——但这样要么能管的 Python 太少，要么把系统已有的同版本再装一份，显得冗余。
 
-uvshim 的应对是：为受管的系统 Python 提供一个**基础环境**，它
+uvshim 的应对是：为每个受管的 Python 提供一个**基础环境**，它
 
 - 独立于系统那个不可写的环境，不影响系统使用的原生库；
 - 又能利用系统环境中已安装的包；
 - 同时不影响项目 venv 的隔离。
-- 由于是自建的环境，是可写的。也解决了受管理的系统，依赖特别机制来安装工具，或是不能安装纯库的问题。
+- 由于是自建的环境，是可写的。也解决了受管理的 Python 依赖特别机制来安装工具、或不能安装纯库的问题。
 
 ### 环境为何互相干扰
 
@@ -112,17 +112,14 @@ uvshim 的应对是：为受管的系统 Python 提供一个**基础环境**，�
 `python`、`pip` 垫片都委托给 `_uvshim_resolve`，它输出 `<模式> <路径>`：
 
 - `venv <dir>`：已激活的虚拟环境、项目 `.venv`，或**用户级 base venv**（见下）；
-- `tool <python>`：uv 托管的 base python（不可写），`pip` 安装走 `uv tool`；
+- `tool <python>`：仅作兜底（base venv 无法创建时），`pip` 安装走 `uv tool`；
 - `plain <python>`：非 managed 的 base python（pyenv / 官方安装 / 自编译），`pip` 用 `python -m pip`。
 
-解析顺序：`VIRTUAL_ENV` → `uv python find`（项目 `.venv` / `.python-version`）→ 用户 base venv / tool / plain。
+解析顺序：`VIRTUAL_ENV` → `uv python find`（项目 `.venv` / `.python-version`）→ 用户 base venv / plain。
 
 ### 用户级 base venv
 
-它只针对**系统 managed**的 python：
-
-1. 只有系统 managed 的 python（发行版/Homebrew，带 PEP 668 外部管理标记）才会采用——它们无法直接安装。
-2. uv 自己 managed 的不会采用；uv 用自己的环境来管理它们（`uv venv` / `uv add` 建的 venv，或 `uv tool`）。而 `uv pip install` 总需要一个目标环境——venv，或用 `--system` 指向系统解释器——这也是任何 base python 都无法直接安装的原因。
+它适用于所有**受管理（managed）的 python**（带 PEP 668 外部管理标记）。它们都无法直接装包，因此 uvshim 为每一个都提供用户级 base venv。
 
 uvshim 为它创建的用户级 base venv 位于：
 
@@ -130,7 +127,7 @@ uvshim 为它创建的用户级 base venv 位于：
 ~/.local/share/uvshim/base-venvs/<key>
 ```
 
-（`<key>` 由 base python 的真实路径得到，即每个安装对应一个 base venv）。包和工具都装进它，系统 python 不受影响。它以 `--system-site-packages` 创建，因此系统安装的 Python 包（如 Debian 的 `dist-packages`）仍可 import。
+（`<key>` 由 base python 的真实路径得到，即每个安装对应一个 base venv）。包和工具都装进它，base python 不受影响。它以 `--system-site-packages` 创建，因此系统安装的 Python 包（如 Debian 的 `dist-packages`）仍可 import。
 
 > base venv 按需创建（由垫片创建，切换 python 时 `uvpin` 也会创建）。它**不会**在 shell 里被激活，因此不与项目虚拟环境冲突：项目 `.venv` 激活时优先，`deactivate` 后回落到垫片（进而用 base venv）。
 
@@ -214,7 +211,7 @@ python3 script.py
 行为规则：
 
 1. **有已激活的虚拟环境**时，直接使用该环境内的 Python（`$VIRTUAL_ENV/bin/python`）。
-2. **否则**用 `uv python find` 解析解释器（尊重项目 `.venv` 与 `.python-version`）。若解析到系统 managed 的 base python，则使用它的**用户级 base venv**（见[垫片设计](#垫片设计)）。
+2. **否则**用 `uv python find` 解析解释器（尊重项目 `.venv` 与 `.python-version`）。若解析到 managed 的 base python，则使用它的**用户级 base venv**（见[垫片设计](#垫片设计)）。
 
 ### pip / pip3
 
@@ -227,7 +224,7 @@ pip3 install "flask>=3.0"
 
 `pip` 会自动绑定到当前上下文里 `python` 所对应的版本，因此你不需要手动写 `python -m pip`。
 
-`pip` 通过 `uv pip` 装进当前生效的环境——已激活的虚拟环境、项目 `.venv`，或系统 python 的用户级 base venv；对 uv 托管的 base python 则回退到 `uv tool`（隔离的 CLI 环境）。注意 `uv tool` 只适合 CLI 工具；纯库请安装到 venv。
+`pip` 通过 `uv pip` 装进当前生效的环境——已激活的虚拟环境、项目 `.venv`，或 managed python 的用户级 base venv。（`uv tool` 仅在 base venv 无法创建时兜底，且只适合 CLI 工具。）
 
 ### uvpin
 
@@ -271,7 +268,7 @@ uvpin
 
 ## pip 后端
 
-`pip` / `pip3` 一律通过 `uv pip` 装进当前生效的环境——已激活的虚拟环境、项目 `.venv`，或系统 python 的用户级 base venv；对 uv 托管的 base python（无可写环境）则回退到 `uv tool`。由于 `uv pip` 绑定的是明确的环境，这在 macOS + Homebrew 下同样可用。
+`pip` / `pip3` 一律通过 `uv pip` 装进当前生效的环境——已激活的虚拟环境、项目 `.venv`，或 managed python 的用户级 base venv。由于 `uv pip` 绑定的是明确的环境，这在 macOS + Homebrew 下同样可用。
 
 ---
 
@@ -331,7 +328,7 @@ A：不会。垫片只是几个独立的 Shell 脚本；卸载脚本仅删除带
 
 **Q：已经激活了 virtualenv / conda，会怎样？**
 
-A：若设置了 `VIRTUAL_ENV`，垫片会直接使用该环境内的 Python。未设置 `VIRTUAL_ENV` 的 conda 环境则走正常解析（`uv python find` → base venv / tool / plain）。
+A：若设置了 `VIRTUAL_ENV`，垫片会直接使用该环境内的 Python。未设置 `VIRTUAL_ENV` 的 conda 环境则走正常解析（`uv python find` → base venv / plain）。
 
 **Q：想在项目里隔离依赖怎么办？**
 
