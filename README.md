@@ -31,20 +31,19 @@ In a nutshell:
 
 ## Background and Goals
 
-uv is a powerful Python toolkit covering project management, virtualenvs, and package management, but as of 2026/10/09 it still **lacks global multi-version Python management**.
+A typical development machine has several Pythons at the same time:
 
-pyenv uses shims to let users switch Python versions easily; since uv does not offer this officially, third-party projects such as `uv-python-shims` have appeared — they may be more mature, and are worth considering. This project takes a slightly different but broadly similar approach.
+- the one shipped by the operating system (e.g. `/usr/bin/python3.14`);
+- one or more installed by a third-party package manager (e.g. Homebrew);
+- one or more downloaded and managed by uv itself.
 
-Building shims looks easy, yet a few pitfalls need handling:
+Folding all of them into a single multi-version management scheme is hard, because:
 
-- **Cross-platform consistency**: mainly Linux vs macOS; making shims behave identically is non-trivial.
-- **Coexisting with system Python**: systems ship their own Python and users may install more; folding all of them into uv's version management is not easy.
-- **venv and global side by side**: a project may use a virtualenv or the global environment; the shims must handle both.
-- **Where to put the shims**: `/usr/bin`, `/usr/local/bin`, or the user's home directory? The user should have full freedom of choice.
-- **The pip-to-python binding problem**: native pip is a separate program and, when misconfigured, easily drifts out of sync with the main Python, which is painful to manage.
-  - It is also stable but slow; can the faster `uv pip` replace it? See [pip Backends](#pip-backends).
+- **They are not interchangeable.** Some are marked "externally managed" (PEP 668) and refuse `pip install`. The rules — and the writable locations — differ between the OS Python, Homebrew's, and even uv's own downloads: uv marks the Pythons it installs with its own `EXTERNALLY-MANAGED` file. There is no single, universal way to install a package or library.
+- **Switching versions changes where packages belong.** Pin a project to 3.12 and installs belong in one place; pin the system to 3.14 and they belong somewhere else. Nothing guarantees a package lands in the directory that the *active* Python actually imports from — install into the wrong environment and the package silently "does not work".
+- **Projects override everything.** A project's `.venv` is a separate world from the system environment; confusing the two (or letting a globally pinned Python shadow the project) breaks either the project or the system.
 
-This project solves all of the above with a **simple, good-enough** design. Questions and discussion are welcome.
+Existing tools (pyenv shims, `uv-python-shims`, plain `uv`, `pipx`, …) each solve only a slice of this. This project takes a broader, safety-first view: it treats the system, third-party, and uv-managed Pythons, the PEP 668 rules, and project virtualenvs as one coherent picture, and provides a single set of `python` / `pip` commands that always resolve to the correct, writable environment — without modifying or shadowing the system Python.
 
 ## How It Works
 
