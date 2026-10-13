@@ -15,7 +15,7 @@ In a nutshell:
 
 ## Table of Contents
 
-- [Background and Goals](#background-and-goals)
+- [The multi-Python dilemma](#the-multi-python-dilemma)
 - [How It Works](#how-it-works)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -29,21 +29,43 @@ In a nutshell:
 
 ---
 
-## Background and Goals
+## The multi-Python dilemma
 
-A typical development machine has several Pythons at the same time:
+Managing several Python versions sounds simple until you actually try. Do any of these sound familiar?
 
-- the one shipped by the operating system (e.g. `/usr/bin/python3.14`);
-- one or more installed by a third-party package manager (e.g. Homebrew);
-- one or more downloaded and managed by uv itself.
+**Layer 1 — Four big questions**
 
-Folding all of them into a single multi-version management scheme is hard, because:
+1. Is there one unified, comprehensive tool to manage all the Pythons?
+2. Why is installing packages on a single machine so painful?
+3. Why does everything behave differently once you switch Python versions?
+4. Why do the system, project, and per-tool environments keep stepping on each other?
 
-- **They are not interchangeable.** Some are marked "externally managed" (PEP 668) and refuse `pip install`. The rules — and the writable locations — differ between the OS Python, Homebrew's, and even uv's own downloads: uv marks the Pythons it installs with its own `EXTERNALLY-MANAGED` file. There is no single, universal way to install a package or library.
-- **Switching versions changes where packages belong.** Pin a project to 3.12 and installs belong in one place; pin the system to 3.14 and they belong somewhere else. Nothing guarantees a package lands in the directory that the *active* Python actually imports from — install into the wrong environment and the package silently "does not work".
-- **Projects override everything.** A project's `.venv` is a separate world from the system environment; confusing the two (or letting a globally pinned Python shadow the project) breaks either the project or the system.
+**Layer 2 — The concrete pain points**
 
-Existing tools (pyenv shims, `uv-python-shims`, plain `uv`, `pipx`, …) each solve only a slice of this. This project takes a broader, safety-first view: it treats the system, third-party, and uv-managed Pythons, the PEP 668 rules, and project virtualenvs as one coherent picture, and provides a single set of `python` / `pip` commands that always resolve to the correct, writable environment — without modifying or shadowing the system Python.
+**1) Choosing a tool**
+
+- `uv` or `pyenv` — which should I use?
+- `uv-python-shims`, `pipx`, plain `uv`… each seems to solve only part of it. How do they fit together?
+- Why does none of them handle the OS, Homebrew, and uv-managed Pythons together?
+
+**2) Installing packages (`pip install`)**
+
+- On Ubuntu, why does the system Python tell me to use `apt install python3-*` instead of `pip`?
+- I installed `python3-pip`, yet `pip install` still refuses with `externally-managed-environment`. Why?
+- Why does only `python -m pip install` work, while `pip install` does not?
+- `pip install` succeeded, so why can't I `import` the package (it went to some other environment)?
+
+**3) Switching versions**
+
+- On macOS, why does `uv pip install` still land in the same Homebrew directory after I switch Python?
+- When switching between Python versions, why can I `pip install` into some but not others?
+- Why can `which python3` disagree with the Python that actually runs?
+
+**4) Conflicts**
+
+- I installed with `sudo pip`; why can't my normal user use it?
+- Uninstalling a pip package suddenly broke a system tool — why?
+- Why do I keep seeing "Defaulting to user installation…", installing into `~/.local` instead of the system directory?
 
 ## How It Works
 
@@ -77,6 +99,8 @@ Distro/Homebrew Pythons are marked externally-managed (PEP 668), so packages can
 > The base venv is created on demand (by the shims, and by `uvpin` when you switch Python). It is never "activated" in your shell, so it does not interfere with project virtualenvs: activating a project `.venv` takes precedence, and `deactivate` falls back to the shim (which then uses the base venv).
 
 So as long as the shim directory comes earlier in `PATH`, your usual `python xxx.py` and `pip install xxx` just work.
+
+A project `.venv` is already isolated by design — uvshim does not change that. It simply cooperates: an active venv (or a project `.venv`) takes precedence, and after `deactivate` the shim resumes.
 
 ---
 
