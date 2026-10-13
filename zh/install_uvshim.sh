@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # 脚本名（仅用于帮助信息）。
-# 直接执行时 $0 即为脚本名；但被 source 时 $0 是当前 shell，
+# 直接执行时 $0 即为脚本名；被 source 时 $0 是当前 shell，
 # 因此优先用 bash 的 BASH_SOURCE / zsh 的 %x 还原真实脚本名；
 # 非 bash/zsh 的 sh 无法获知，则回退到下面与文件名一致的固定值。
 # ==============================================================================
@@ -23,103 +23,203 @@ show_install_help() {
     echo "  ./${APP_NAME} -h | --help    显示本帮助说明"
     echo ""
     echo "📦 部署包含的文件:"
-    echo "  - python / python3 : 智能防死循环、可自动感知项目虚拟环境的全局路由"
-    echo "  - pip / pip3       : 动态绑定当前 python 版本的依赖安装器（方案B）"
+    echo "  - python / python3 : 通过 'uv python find' 解析解释器"
+    echo "  - pip / pip3       : 通过 'uv pip' 安装包（装进 venv / 用户 base venv）"
     echo "  - uvpin            : 上下文环境感知的 Python 版本一键锁定工具, 替代\`uv python pin\`"
+    echo "  - _uvshim_resolve  : 内部辅助脚本，用于解析当前生效的环境"
     echo ""
+    echo "💡 系统 managed 的 python（发行版/Homebrew）会获得一个用户级 base venv，位于"
+    echo "   ~/.local/share/uvshim/base-venvs，从而可在不影响系统 python 的前提下安装包和工具。"
     echo "--------------------------------------------------------"
 }
 
-# 动态生成 python 和 python3 垫片
+# 共享的运行时解析器：python/pip 垫片会调用它来判断该用哪个环境。
+# 输出 "<模式> <路径>":
+#   venv  <dir>    -> 用 <dir>/bin/python；安装会进该虚拟环境
+#   tool  <python> -> uv 托管的 base python；安装走 `uv tool`
+#   plain <python> -> 非 managed 的 base python（pyenv/官方安装）；用 python -m pip
+create_resolve_helper() {
+    local file_path="$TARGET_DIR/_uvshim_resolve"
+
+    cat << 'EOF' > "$file_path"
+#!/bin/sh
+# [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
+
+# 定位 uv
+UV="$SCRIPT_DIR/uv"
+[ -x "$UV" ] || UV=$(command -v uv 2>/dev/null)
+[ -n "$UV" ] || exit 1
+
+UVSHIM_HOME="${UVSHIM_HOME:-$HOME/.local/share/uvshim}"
+BASE_VENVS="$UVSHIM_HOME/base-venvs"
+
+# 从 PATH 中移除本垫片目录，避免 uv 发现我们自己的垫片
+_clean_path() {
+    _out= _rest=$PATH _d=
+    while [ -n "$_rest" ]; do
+        case "$_rest" in
+            *:*) _d=${_rest%%:*}; _rest=${_rest#*:} ;;
+            *)   _d=$_rest; _rest= ;;
+        esac
+        [ -n "$_d" ] || continue
+        [ "$_d" = "$SCRIPT_DIR" ] && continue
+        _out="${_out:+$_out:}$_d"
+    done
+    printf '%s\n' "$_out"
+}
+PATH=$(_clean_path); export PATH
+
+# 不依赖外部 realpath（macOS 默认没有）求绝对路径
+_abspath() {
+    _d=$(dirname -- "$1"); _b=$(basename -- "$1")
+    ( cd "$_d" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$_b" )
+}
+
+# 若 $1 是 venv 的 python，输出 venv 根目录；否则不输出
+_venv_root() {
+    _root=$(cd "$(dirname -- "$1")/.." 2>/dev/null && pwd -P) || return 1
+    [ -f "$_root/pyvenv.cfg" ] && printf '%s\n' "$_root"
+}
+
+# $1 是否位于 uv 托管的 python 目录之下？
+_is_uv_managed() {
+    _uvd=$("$UV" python dir 2>/dev/null) || return 1
+    _dir=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P)
+    case "$_dir" in
+        "$_uvd"|"$_uvd"/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# $1 是否是 externally-managed（PEP 668）的 base python（非 venv）？
+_is_managed() {
+    "$1" -c 'import sys,sysconfig,os; raise SystemExit(0 if sys.prefix==sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null
+}
+
+# 确保系统 managed 的 base python $1 拥有用户级 base venv（不存在则创建）
+_ensure_base_venv() {
+    _real=$(_abspath "$1")
+    _key=$(printf '%s' "$_real" | sed 's#^/##; s#/#-#g')
+    _dir="$BASE_VENVS/$_key"
+    if [ ! -x "$_dir/bin/python" ]; then
+        mkdir -p "$BASE_VENVS" 2>/dev/null || return 1
+        "$UV" venv "$_dir" --python "$_real" >/dev/null 2>&1 || return 1
+        printf '%s\n' "$_real" > "$_dir/.uvshim-base" 2>/dev/null
+    fi
+    [ -x "$_dir/bin/python" ] && printf '%s\n' "$_dir"
+}
+
+# 1) 已激活的虚拟环境优先
+if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+    printf 'venv %s\n' "$VIRTUAL_ENV"
+    exit 0
+fi
+
+# 2) 交给 uv 选择解释器（尊重 .python-version / pyproject / .venv）
+PY=$("$UV" python find 2>/dev/null)
+[ -n "$PY" ] || exit 1
+
+# 3) 项目/本地的虚拟环境
+VROOT=$(_venv_root "$PY")
+if [ -n "$VROOT" ]; then
+    printf 'venv %s\n' "$VROOT"
+    exit 0
+fi
+
+# 4) uv 托管的 base python：不可写 -> tool 模式
+if _is_uv_managed "$PY"; then
+    printf 'tool %s\n' "$PY"
+    exit 0
+fi
+
+# 5) 系统 managed 的 base python：使用它的用户级 base venv
+if _is_managed "$PY"; then
+    BV=$(_ensure_base_venv "$PY")
+    if [ -n "$BV" ]; then
+        printf 'venv %s\n' "$BV"
+    else
+        printf 'tool %s\n' "$PY"
+    fi
+    exit 0
+fi
+
+# 6) 非 managed 的 base python（pyenv / 官方安装 / 自编译）
+printf 'plain %s\n' "$PY"
+exit 0
+EOF
+
+    chmod +x "$file_path"
+    echo "  ✅ 已成功部署: _uvshim_resolve"
+}
+
+# 生成 python 和 python3 垫片
 create_python_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    # 根据不同操作系统，预设好绝对兼容的 PATH 清洗命令
-    local sed_cmd=""
-    if [ "$OS_TYPE" = "Darwin" ]; then
-        # macOS (BSD sed) 兼容写法
-        sed_cmd='CLEANED_PATH=$(echo "$PATH" | sed -E "s#(^|:)$SCRIPT_DIR(:|\$)#:#g; s#^:##; s#:\$##")'
-    else
-        # Linux (GNU sed) 兼容写法
-        sed_cmd='CLEANED_PATH=$(echo "$PATH" | sed -r "s#(^|:)$SCRIPT_DIR(:|\$)#:#g; s#^:##; s#:\$##")'
-    fi
-
-    cat << EOF > "$file_path"
+    cat << 'EOF' > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
-# 1. 如果已经在激活的虚拟环境中，直接执行虚拟环境内的 python
-if [ -n "\$VIRTUAL_ENV" ]; then
-    exec "\$VIRTUAL_ENV/bin/python" "\$@"
-fi
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
 
-# 2. 获取当前脚本（和 uv）所在的目录
-SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
-
-# 3. 找到真正的 uv 绝对路径 (优先 command -v，比 which 更跨平台)
-REAL_UV="\$SCRIPT_DIR/uv"
-if [ ! -x "\$REAL_UV" ]; then
-    REAL_UV=\$(command -v uv 2>/dev/null)
-fi
-
-if [ -z "\$REAL_UV" ]; then
-    echo "❌ 错误: 未在系统或当前目录中找到 uv，请先安装 uv！" >&2
-    exit 1
-fi
-
-# 4. 从当前的 PATH 中安全移除当前拦截脚本的目录 (防止 uv 内部探测时发生死循环)
-$sed_cmd
-
-# 5. 用干净的 PATH 执行 uv run
-PATH="\$CLEANED_PATH" exec "\$REAL_UV" run python "\$@"
+res=$("$SCRIPT_DIR/_uvshim_resolve" 2>/dev/null)
+mode=${res%% *}
+path=${res#* }
+case "$mode" in
+    venv)       exec "$path/bin/python" "$@" ;;
+    tool|plain) exec "$path" "$@" ;;
+    *) echo "uvshim: 无法解析 Python 解释器（uv 是否已安装？）" >&2; exit 1 ;;
+esac
 EOF
 
     chmod +x "$file_path"
     echo "  ✅ 已成功部署: $name"
 }
 
-# 创建 pip 和 pip3 垫片
+# 生成 pip 和 pip3 垫片
 create_pip_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    # 安装时解析一次 uv 可执行文件
-    local real_uv="$TARGET_DIR/uv"
-    [ -x "$real_uv" ] || real_uv=$(command -v uv 2>/dev/null)
-
-    cat << EOF > "$file_path"
+    cat << 'EOF' > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
-SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
 
-UV="$real_uv"
-[ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
+# `pip --version`：本垫片由 `uv pip` 驱动，不使用 pip 包。
+case "$1" in
+    --version|-V)
+        echo "uvshim: 此 pip 垫片由 'uv pip' 驱动；不需要 pip 包。"
+        exit 0 ;;
+esac
 
-# 1) 处于环境中：已激活的虚拟环境，或当前目录下的 .venv。
-#    有自带 pip 就用它，否则用 uv pip（会定位到该 venv）。
-if [ -n "\$VIRTUAL_ENV" ] || [ -d .venv ]; then
-    if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
-        exec "\$SCRIPT_DIR/python" -m pip "\$@"
-    fi
-    exec "\$UV" pip "\$@"
-fi
+UV="$SCRIPT_DIR/uv"
+[ -x "$UV" ] || UV=$(command -v uv 2>/dev/null)
 
-# 2) 不在任何环境中：回退到 uv 的工具管理器（隔离的 CLI 环境）。
-#    例如 pip install podman-compose==1.6.0 -> uv tool install podman-compose==1.6.0
-exec "\$UV" tool "\$@"
+res=$("$SCRIPT_DIR/_uvshim_resolve" 2>/dev/null)
+mode=${res%% *}
+path=${res#* }
+case "$mode" in
+    venv)  VIRTUAL_ENV="$path" exec "$UV" pip "$@" ;;
+    tool)  exec "$UV" tool "$@" ;;
+    plain) exec "$path" -m pip "$@" ;;
+    *) echo "uvshim: 无法解析环境（uv 是否已安装？）" >&2; exit 1 ;;
+esac
 EOF
 
     chmod +x "$file_path"
     echo "  ✅ 已成功部署: $name"
 }
 
-# 【核心新增】创建智能环境感知 uvpin 脚本
+# 【核心】创建智能环境感知 uvpin 脚本
 create_uvpin_tool() {
     local file_path="$TARGET_DIR/uvpin"
 
     cat << 'EOF' > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
 
 show_help() {
     echo "💡 现代化 uv 环境感知版本管理工具 - uvpin"
@@ -174,7 +274,7 @@ TARGET_INFO=$(find_active_target)
 TARGET_TYPE=$(echo "$TARGET_INFO" | cut -d':' -f1)
 TARGET_PATH=$(echo "$TARGET_INFO" | cut -d':' -f2-)
 
-# 【新增：不带参数时的智能查询功能】
+# 【不带参数时的智能查询功能】
 if [ -z "$1" ]; then
     echo "🔍 正在分析当前环境的 Python 调度上下文..."
     case "$TARGET_TYPE" in
@@ -220,6 +320,9 @@ case "$TARGET_TYPE" in
         uv python pin --global "$VERSION"
         ;;
 esac
+
+# 若新解释器是系统 managed 的 python，确保其用户级 base venv 存在（按需创建）
+"$SCRIPT_DIR/_uvshim_resolve" >/dev/null 2>&1 || true
 EOF
     chmod +x "$file_path"
     echo "  ✅ 已成功部署: uvpin"
@@ -352,6 +455,7 @@ main() {
     local OS_TYPE=$(uname -s)
 
     # 2. 执行生成逻辑
+    create_resolve_helper
     create_python_shim "python"
     create_python_shim "python3"
     create_pip_shim "pip"

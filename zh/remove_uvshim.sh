@@ -10,7 +10,7 @@ remove_shims_in_dir() {
     abs_dir=$(cd "$dir" && pwd) || return
     local name= file_path=
     # 直接列出文件名，避免依赖未加引号变量的单词拆分（zsh 默认不拆分）
-    for name in python python3 pip pip3 uvpin; do
+    for name in python python3 pip pip3 uvpin _uvshim_resolve; do
         file_path="$abs_dir/$name"
 
         # 必须是常规文件且可读

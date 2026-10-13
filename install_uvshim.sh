@@ -24,90 +24,190 @@ show_install_help() {
     echo "  ./${APP_NAME} -h | --help      Show this help"
     echo ""
     echo "📦 Files deployed:"
-    echo "  - python / python3 : smart, loop-safe global router that detects project virtualenvs"
-    echo "  - pip / pip3       : installer dynamically bound to the current python version (Plan B)"
+    echo "  - python / python3 : resolve the interpreter via 'uv python find'"
+    echo "  - pip / pip3       : install packages via 'uv pip' (into a venv / user base venv)"
     echo "  - uvpin            : context-aware Python version pinning tool, replaces \`uv python pin\`"
+    echo "  - _uvshim_resolve  : internal helper that resolves the effective environment"
     echo ""
+    echo "💡 System-managed Pythons (distro/Homebrew) get a per-user base venv under"
+    echo "   ~/.local/share/uvshim/base-venvs so packages and tools can be installed"
+    echo "   without touching the system Python."
     echo "--------------------------------------------------------"
 }
 
-# Dynamically generate the python and python3 shims
+# Shared runtime resolver: a tiny script the python/pip shims call to figure out
+# which environment to use. Prints "<mode> <path>":
+#   venv  <dir>    -> use <dir>/bin/python; installs go into that virtualenv
+#   tool  <python> -> uv-managed base python; installs go to `uv tool`
+#   plain <python> -> non-managed base python (pyenv/official build); use python -m pip
+create_resolve_helper() {
+    local file_path="$TARGET_DIR/_uvshim_resolve"
+
+    cat << 'EOF' > "$file_path"
+#!/bin/sh
+# [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
+
+# Locate uv
+UV="$SCRIPT_DIR/uv"
+[ -x "$UV" ] || UV=$(command -v uv 2>/dev/null)
+[ -n "$UV" ] || exit 1
+
+UVSHIM_HOME="${UVSHIM_HOME:-$HOME/.local/share/uvshim}"
+BASE_VENVS="$UVSHIM_HOME/base-venvs"
+
+# Drop this shim directory from PATH so uv never discovers our own shims
+_clean_path() {
+    _out= _rest=$PATH _d=
+    while [ -n "$_rest" ]; do
+        case "$_rest" in
+            *:*) _d=${_rest%%:*}; _rest=${_rest#*:} ;;
+            *)   _d=$_rest; _rest= ;;
+        esac
+        [ -n "$_d" ] || continue
+        [ "$_d" = "$SCRIPT_DIR" ] && continue
+        _out="${_out:+$_out:}$_d"
+    done
+    printf '%s\n' "$_out"
+}
+PATH=$(_clean_path); export PATH
+
+# Absolute path without external `realpath` (missing on macOS by default)
+_abspath() {
+    _d=$(dirname -- "$1"); _b=$(basename -- "$1")
+    ( cd "$_d" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$_b" )
+}
+
+# If $1 is a venv python, print the venv root; otherwise print nothing
+_venv_root() {
+    _root=$(cd "$(dirname -- "$1")/.." 2>/dev/null && pwd -P) || return 1
+    [ -f "$_root/pyvenv.cfg" ] && printf '%s\n' "$_root"
+}
+
+# Is $1 under uv's managed Python directory?
+_is_uv_managed() {
+    _uvd=$("$UV" python dir 2>/dev/null) || return 1
+    _dir=$(cd "$(dirname -- "$1")" 2>/dev/null && pwd -P)
+    case "$_dir" in
+        "$_uvd"|"$_uvd"/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Is $1 an externally-managed (PEP 668) base python (not a venv)?
+_is_managed() {
+    "$1" -c 'import sys,sysconfig,os; raise SystemExit(0 if sys.prefix==sys.base_prefix and os.path.exists(os.path.join(sysconfig.get_path("stdlib"),"EXTERNALLY-MANAGED")) else 1)' 2>/dev/null
+}
+
+# Ensure (create if missing) the per-user base venv for a system-managed python $1
+_ensure_base_venv() {
+    _real=$(_abspath "$1")
+    _key=$(printf '%s' "$_real" | sed 's#^/##; s#/#-#g')
+    _dir="$BASE_VENVS/$_key"
+    if [ ! -x "$_dir/bin/python" ]; then
+        mkdir -p "$BASE_VENVS" 2>/dev/null || return 1
+        "$UV" venv "$_dir" --python "$_real" >/dev/null 2>&1 || return 1
+        printf '%s\n' "$_real" > "$_dir/.uvshim-base" 2>/dev/null
+    fi
+    [ -x "$_dir/bin/python" ] && printf '%s\n' "$_dir"
+}
+
+# 1) An activated virtualenv always wins
+if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+    printf 'venv %s\n' "$VIRTUAL_ENV"
+    exit 0
+fi
+
+# 2) Let uv pick the interpreter (respects .python-version / pyproject / .venv)
+PY=$("$UV" python find 2>/dev/null)
+[ -n "$PY" ] || exit 1
+
+# 3) A project/local virtualenv
+VROOT=$(_venv_root "$PY")
+if [ -n "$VROOT" ]; then
+    printf 'venv %s\n' "$VROOT"
+    exit 0
+fi
+
+# 4) uv-managed base python: not writable -> tool mode
+if _is_uv_managed "$PY"; then
+    printf 'tool %s\n' "$PY"
+    exit 0
+fi
+
+# 5) System-managed base python: use its per-user base venv
+if _is_managed "$PY"; then
+    BV=$(_ensure_base_venv "$PY")
+    if [ -n "$BV" ]; then
+        printf 'venv %s\n' "$BV"
+    else
+        printf 'tool %s\n' "$PY"
+    fi
+    exit 0
+fi
+
+# 6) Non-managed base python (pyenv / python.org / source build)
+printf 'plain %s\n' "$PY"
+exit 0
+EOF
+
+    chmod +x "$file_path"
+    echo "  ✅ Deployed: _uvshim_resolve"
+}
+
+# Generate the python and python3 shims
 create_python_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    # Pick a fully compatible PATH-cleanup command per OS
-    local sed_cmd=""
-    if [ "$OS_TYPE" = "Darwin" ]; then
-        # macOS (BSD sed)
-        sed_cmd='CLEANED_PATH=$(echo "$PATH" | sed -E "s#(^|:)$SCRIPT_DIR(:|\$)#:#g; s#^:##; s#:\$##")'
-    else
-        # Linux (GNU sed)
-        sed_cmd='CLEANED_PATH=$(echo "$PATH" | sed -r "s#(^|:)$SCRIPT_DIR(:|\$)#:#g; s#^:##; s#:\$##")'
-    fi
-
-    cat << EOF > "$file_path"
+    cat << 'EOF' > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
-# 1. If a virtualenv is active, use its python directly
-if [ -n "\$VIRTUAL_ENV" ]; then
-    exec "\$VIRTUAL_ENV/bin/python" "\$@"
-fi
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
 
-# 2. Locate the directory of this script (and of uv)
-SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
-
-# 3. Find the real uv path (prefer command -v over which for portability)
-REAL_UV="\$SCRIPT_DIR/uv"
-if [ ! -x "\$REAL_UV" ]; then
-    REAL_UV=\$(command -v uv 2>/dev/null)
-fi
-
-if [ -z "\$REAL_UV" ]; then
-    echo "❌ Error: uv not found in the system or current directory; install uv first!" >&2
-    exit 1
-fi
-
-# 4. Remove this shim's directory from PATH (prevents an infinite loop when uv probes python)
-$sed_cmd
-
-# 5. Run uv with the cleaned PATH
-PATH="\$CLEANED_PATH" exec "\$REAL_UV" run python "\$@"
+res=$("$SCRIPT_DIR/_uvshim_resolve" 2>/dev/null)
+mode=${res%% *}
+path=${res#* }
+case "$mode" in
+    venv)       exec "$path/bin/python" "$@" ;;
+    tool|plain) exec "$path" "$@" ;;
+    *) echo "uvshim: could not resolve a Python interpreter (is uv installed?)" >&2; exit 1 ;;
+esac
 EOF
 
     chmod +x "$file_path"
     echo "  ✅ Deployed: $name"
 }
 
-# Create the pip and pip3 shims
+# Generate the pip and pip3 shims
 create_pip_shim() {
     local name=$1
     local file_path="$TARGET_DIR/$name"
 
-    # Resolve the uv executable once, at install time
-    local real_uv="$TARGET_DIR/uv"
-    [ -x "$real_uv" ] || real_uv=$(command -v uv 2>/dev/null)
-
-    cat << EOF > "$file_path"
+    cat << 'EOF' > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
-SCRIPT_DIR=\$(cd "\$(dirname -- "\$0")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
 
-UV="$real_uv"
-[ -n "\$UV" ] || UV=\$(command -v uv 2>/dev/null)
+# `pip --version`: this shim is backed by `uv pip`, not the `pip` package.
+case "$1" in
+    --version|-V)
+        echo "uvshim: this pip shim is backed by 'uv pip'; the pip package is not required."
+        exit 0 ;;
+esac
 
-# 1) Inside an environment: an activated virtualenv, or a local .venv.
-#    Use the environment's own pip when present, otherwise uv pip (targets the venv).
-if [ -n "\$VIRTUAL_ENV" ] || [ -d .venv ]; then
-    if "\$SCRIPT_DIR/python" -m pip --version >/dev/null 2>&1; then
-        exec "\$SCRIPT_DIR/python" -m pip "\$@"
-    fi
-    exec "\$UV" pip "\$@"
-fi
+UV="$SCRIPT_DIR/uv"
+[ -x "$UV" ] || UV=$(command -v uv 2>/dev/null)
 
-# 2) No environment: fall back to uv's tool manager (isolated CLI environments).
-#    e.g. pip install podman-compose==1.6.0 -> uv tool install podman-compose==1.6.0
-exec "\$UV" tool "\$@"
+res=$("$SCRIPT_DIR/_uvshim_resolve" 2>/dev/null)
+mode=${res%% *}
+path=${res#* }
+case "$mode" in
+    venv)  VIRTUAL_ENV="$path" exec "$UV" pip "$@" ;;
+    tool)  exec "$UV" tool "$@" ;;
+    plain) exec "$path" -m pip "$@" ;;
+    *) echo "uvshim: could not resolve an environment (is uv installed?)" >&2; exit 1 ;;
+esac
 EOF
 
     chmod +x "$file_path"
@@ -121,6 +221,7 @@ create_uvpin_tool() {
     cat << 'EOF' > "$file_path"
 #!/bin/sh
 # [UV-SHIMS-MARKER] - DO NOT REMOVE THIS LINE
+SCRIPT_DIR=$(cd "$(dirname -- "$0")" && pwd)
 
 show_help() {
     echo "💡 Modern context-aware uv version manager - uvpin"
@@ -221,6 +322,10 @@ case "$TARGET_TYPE" in
         uv python pin --global "$VERSION"
         ;;
 esac
+
+# If the new interpreter is a system-managed python, make sure its per-user
+# base venv exists (creating it on demand).
+"$SCRIPT_DIR/_uvshim_resolve" >/dev/null 2>&1 || true
 EOF
     chmod +x "$file_path"
     echo "  ✅ Deployed: uvpin"
@@ -355,6 +460,7 @@ main() {
     local OS_TYPE=$(uname -s)
 
     # 2. Run the generation logic
+    create_resolve_helper
     create_python_shim "python"
     create_python_shim "python3"
     create_pip_shim "pip"

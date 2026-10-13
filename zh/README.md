@@ -23,7 +23,7 @@
   - [python / python3](#python--python3)
   - [pip / pip3](#pip--pip3)
   - [uvpin](#uvpin)
-- [两种 pip 方案如何选择](#两种-pip-方案如何选择)
+- [pip 后端](#pip-后端)
 - [卸载](#卸载)
 - [常见问题](#常见问题)
 
@@ -42,33 +42,42 @@ pyenv 通过垫片（shims）让用户方便地切换各种 Python 版本；uv �
 - **venv 与全局并存**：项目可能使用虚拟环境，也可能直接用全局，垫片需要同时兼顾。
 - **垫片放在哪里**：`/usr/bin`、`/usr/local/bin` 还是用户目录？使用者应当拥有充分的自主选择权。
 - **pip 与 python 的绑定问题**：原生 pip 作为独立程序，配置不当，很容易和 python 主程序脱节，处理起来很麻烦。
-  - 另外稳定但性能略低，能否改用性能更好的 `uv pip` 代替？参见[两种 pip 方案如何选择](#两种-pip-方案如何选择)。
+  - 另外稳定但性能略低，能否改用性能更好的 `uv pip` 代替？参见 [pip 后端](#pip-后端)。
 
 本项目以**简单、够用**的功能解决了上述问题，欢迎交流提问。
 
 ## 工作原理
 
-安装脚本会在目标目录（默认 `~/.local/bin`）生成 5 个可执行脚本：
+安装脚本会在目标目录（默认 `~/.local/bin`）部署这些文件：
 
-| 垫片 | 作用 |
+| 文件 | 作用 |
 | --- | --- |
-| `python` / `python3` | 智能路由：激活了虚拟环境则用 venv 的 Python，否则用 `uv run python` |
-| `pip` / `pip3` | 动态绑定当前 `python` 对应的版本，转发安装请求 |
+| `python` / `python3` | 用 `uv python find` 解析解释器（尊重 `.python-version`、项目与虚拟环境）并执行 |
+| `pip` / `pip3` | 通过 `uv pip` 装进当前生效的环境 |
 | `uvpin` | 环境感知的版本锁定工具，替代裸用 `uv python pin` |
+| `_uvshim_resolve` | 各垫片共用的内部辅助脚本，负责判定生效环境 |
 
-`python` 垫片的核心逻辑：
+`python`、`pip` 垫片都委托给 `_uvshim_resolve`，它输出 `<模式> <路径>`：
 
-```sh
-if [ -n "$VIRTUAL_ENV" ]; then
-    exec "$VIRTUAL_ENV/bin/python" "$@"   # 1. 虚拟环境优先
-fi
-# 2. 找到真正的 uv
-# 3. 从 PATH 中剔除垫片目录（防死循环）
-# 4. 用干净的 PATH 执行 uv run python
-PATH="$CLEANED_PATH" exec "$REAL_UV" run python "$@"
+- `venv <dir>`：已激活的虚拟环境、项目 `.venv`，或**用户级 base venv**（见下）；
+- `tool <python>`：uv 托管的 base python（不可写），`pip` 安装走 `uv tool`；
+- `plain <python>`：非 managed 的 base python（pyenv / 官方安装 / 自编译），`pip` 用 `python -m pip`。
+
+解析顺序：`VIRTUAL_ENV` → `uv python find`（项目 `.venv` / `.python-version`）→ 用户 base venv / tool / plain。
+
+### 系统 managed 的 python 会获得用户级 base venv
+
+发行版/Homebrew 的 python 带外部管理标记（PEP 668），无法直接装包。为此 uvshim 会为它创建**用户级 base venv**，位于：
+
+```
+~/.local/share/uvshim/base-venvs/<key>
 ```
 
-因此，只要垫片目录排在 `PATH` 前面，你平常写的 `python xxx.py`、`pip install xxx` 就会自动走 uv。
+（`<key>` 由 base python 的真实路径得到）。包和工具都装进它，系统 python 不受影响。uv 托管的 python 不建 base venv，其安装走 `uv tool`。
+
+> base venv 按需创建（由垫片创建，切换 python 时 `uvpin` 也会创建）。它**不会**在 shell 里被激活，因此不与项目虚拟环境冲突：项目 `.venv` 激活时优先，`deactivate` 后回落到垫片（进而用 base venv）。
+
+因此，只要垫片目录排在 `PATH` 前面，你平常写的 `python xxx.py`、`pip install xxx` 就能直接工作。
 
 ---
 
@@ -93,15 +102,13 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/zh/instal
 
 ### 本地脚本安装
 
-克隆或下载本仓库后，两个安装脚本二选一，用法完全一致：
+克隆或下载本仓库后：
 
 ```sh
-# 方案 A：pip 走原生 python -m pip（兼容性更佳）
 ./install_uvshim.sh [目标目录]
-
-# 方案 B：pip 直接转发给 uv pip（速度更快）
-./install_uvshim_w_uvpip.sh [目标目录]
 ```
+
+> `install_uvshim_w_uvpip.sh`（旧的「方案 B」）已弃用：当前 pip 垫片本就通过 `uv pip` 安装，两者行为已一致。请使用 `install_uvshim.sh`。
 
 - `[目标目录]` 可选，默认 `~/.local/bin`。
 - 目标目录不存在时会询问是否自动创建。
@@ -114,6 +121,7 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/zh/instal
 安装成功后会看到：
 
 ```
+✅ 已成功部署: _uvshim_resolve
 ✅ 已成功部署: python
 ✅ 已成功部署: python3
 ✅ 已成功部署: pip
@@ -162,7 +170,7 @@ pip3 install "flask>=3.0"
 
 `pip` 会自动绑定到当前上下文里 `python` 所对应的版本，因此你不需要手动写 `python -m pip`。
 
-处于虚拟环境（已激活，或当前目录有 `.venv`）时，垫片会装进该环境（用它自带的 pip，或用 `uv pip`）。不在任何环境中时，回退到 `uv tool`（隔离的 CLI 环境），例如 `pip install podman-compose==1.6.0` 会执行 `uv tool install podman-compose==1.6.0`。
+`pip` 通过 `uv pip` 装进当前生效的环境——已激活的虚拟环境、项目 `.venv`，或系统 python 的用户级 base venv；对 uv 托管的 base python 则回退到 `uv tool`（隔离的 CLI 环境）。注意 `uv tool` 只适合 CLI 工具；纯库请安装到 venv。
 
 ### uvpin
 
@@ -204,17 +212,11 @@ uvpin
 
 ---
 
-## 两种 pip 方案如何选择
+## pip 后端
 
-| | 方案 A：`install_uvshim.sh` | 方案 B：`install_uvshim_w_uvpip.sh` |
-| --- | --- | --- |
-| pip 实现 | `exec "$SCRIPT_DIR/python" -m pip "$@"` | `exec "$REAL_UV" pip "$@"` |
-| 速度 | 普通 | 更快（uv 原生解析） |
-| 版本切换逻辑 | 完整继承 `python` 垫片的目录 pin | 依赖 `uv pip` 自身的环境解析 |
-| macOS + Homebrew | ✅ 正常 | ⚠️ 可能无法装到目标 Python 版本 |
-| 推荐场景 | 兼容性优先 | Linux，追求安装速度 |
+`pip` / `pip3` 一律通过 `uv pip` 装进当前生效的环境——已激活的虚拟环境、项目 `.venv`，或系统 python 的用户级 base venv；对 uv 托管的 base python（无可写环境）则回退到 `uv tool`。由于 `uv pip` 绑定的是明确的环境，这在 macOS + Homebrew 下同样可用。
 
-> 在 **macOS + Homebrew + uv** 的组合下，方案 B 的 `pip` 可能装不到指定 Python 版本的目录里。遇到此问题请改用作方案 A（`install_uvshim.sh`）。
+这取代了旧的「方案 A / 方案 B」之分；`install_uvshim_w_uvpip.sh` 已弃用。
 
 ---
 
@@ -286,11 +288,9 @@ source .venv/bin/activate
 pip install <package>
 ```
 
-**Q：使用方案 B 时执行 `pip --version` 报 `error: unexpected argument '--version' found`，怎么办？**
+**Q：`pip --version` 打印的是 uvshim 的提示，而不是 pip 版本号。**
 
-A：这是使用方案 B（`install_uvshim_w_uvpip.sh`）时的正常现象。垫片把 `pip` 直接转发给了 `uv pip`，而 `uv pip` 本身不支持 `--version` 选项，因此会报错；这不影响 `pip install` 等其他命令的正常使用。
-
-如果想避免此报错，可改用方案 A（`install_uvshim.sh`），它的 `pip` 走 `python -m pip`，支持 `--version`。
+A：本垫片由 `uv pip` 驱动、不使用 pip 包，所以 uvshim 会拦截 `pip --version` / `-V` 并打印一句提示，避免让 `uv pip` 报出难看的错误。其它命令（`pip install`、`pip list` 等）仍通过 `uv pip` 正常工作。
 
 ---
 

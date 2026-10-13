@@ -12,7 +12,7 @@ remove_shims_in_dir() {
     local name= file_path=
     # List the file names literally to avoid relying on word splitting of an
     # unquoted variable (zsh does not split by default).
-    for name in python python3 pip pip3 uvpin; do
+    for name in python python3 pip pip3 uvpin _uvshim_resolve; do
         file_path="$abs_dir/$name"
 
         # Must be a regular, readable file

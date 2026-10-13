@@ -23,7 +23,7 @@ In a nutshell:
   - [python / python3](#python--python3)
   - [pip / pip3](#pip--pip3)
   - [uvpin](#uvpin)
-- [Choosing Between the Two pip Plans](#choosing-between-the-two-pip-plans)
+- [pip Backends](#pip-backends)
 - [Uninstall](#uninstall)
 - [FAQ](#faq)
 
@@ -42,33 +42,42 @@ Building shims looks easy, yet a few pitfalls need handling:
 - **venv and global side by side**: a project may use a virtualenv or the global environment; the shims must handle both.
 - **Where to put the shims**: `/usr/bin`, `/usr/local/bin`, or the user's home directory? The user should have full freedom of choice.
 - **The pip-to-python binding problem**: native pip is a separate program and, when misconfigured, easily drifts out of sync with the main Python, which is painful to manage.
-  - It is also stable but slow; can the faster `uv pip` replace it? See [Choosing Between the Two pip Plans](#choosing-between-the-two-pip-plans).
+  - It is also stable but slow; can the faster `uv pip` replace it? See [pip Backends](#pip-backends).
 
 This project solves all of the above with a **simple, good-enough** design. Questions and discussion are welcome.
 
 ## How It Works
 
-The installer generates 5 executable scripts in the target directory (default `~/.local/bin`):
+The installer deploys these files in the target directory (default `~/.local/bin`):
 
-| Shim | Role |
+| File | Role |
 | --- | --- |
-| `python` / `python3` | Smart routing: use the venv Python if a virtualenv is active, otherwise `uv run python` |
-| `pip` / `pip3` | Dynamically bound to the version behind the current `python`, forwarding install requests |
+| `python` / `python3` | Resolve the interpreter with `uv python find` (respects `.python-version`, projects, and virtualenvs) and exec it |
+| `pip` / `pip3` | Install via `uv pip` into the effective environment |
 | `uvpin` | Context-aware version pinning tool, replacing bare `uv python pin` |
+| `_uvshim_resolve` | Internal helper shared by the shims; picks the effective environment |
 
-Core logic of the `python` shim:
+The `python` and `pip` shims delegate to `_uvshim_resolve`, which prints `<mode> <path>`:
 
-```sh
-if [ -n "$VIRTUAL_ENV" ]; then
-    exec "$VIRTUAL_ENV/bin/python" "$@"   # 1. virtualenv takes priority
-fi
-# 2. find the real uv
-# 3. remove the shim directory from PATH (loop safety)
-# 4. run uv run python with the cleaned PATH
-PATH="$CLEANED_PATH" exec "$REAL_UV" run python "$@"
+- `venv <dir>` — an activated virtualenv, a project `.venv`, or a **user base venv** (see below);
+- `tool <python>` — a uv-managed base Python (not writable): `pip` installs go to `uv tool`;
+- `plain <python>` — a non-managed base Python (pyenv / python.org / source build): `pip` uses `python -m pip`.
+
+Resolution order: `VIRTUAL_ENV` → `uv python find` (project `.venv` / `.python-version`) → per-user base venv / tool / plain.
+
+### System-managed Pythons get a user base venv
+
+Distro/Homebrew Pythons are marked externally-managed (PEP 668), so packages cannot be installed into them directly. For those, uvshim creates a **per-user base venv** under:
+
+```
+~/.local/share/uvshim/base-venvs/<key>
 ```
 
-So as long as the shim directory comes earlier in `PATH`, your usual `python xxx.py` and `pip install xxx` automatically go through uv.
+(keyed by the base Python's real path). Packages and tools install there, so the system Python stays untouched. uv-managed Pythons are not given a base venv; their installs go to `uv tool`.
+
+> The base venv is created on demand (by the shims, and by `uvpin` when you switch Python). It is never "activated" in your shell, so it does not interfere with project virtualenvs: activating a project `.venv` takes precedence, and `deactivate` falls back to the shim (which then uses the base venv).
+
+So as long as the shim directory comes earlier in `PATH`, your usual `python xxx.py` and `pip install xxx` just work.
 
 ---
 
@@ -93,15 +102,13 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/install_u
 
 ### Install from the local scripts
 
-After cloning or downloading this repository, pick one of the two installers; they are used the same way:
+After cloning or downloading this repository:
 
 ```sh
-# Plan A: pip uses native python -m pip (best compatibility)
 ./install_uvshim.sh [target-dir]
-
-# Plan B: pip forwards directly to uv pip (faster)
-./install_uvshim_w_uvpip.sh [target-dir]
 ```
+
+> `install_uvshim_w_uvpip.sh` (the old "Plan B") is deprecated: the current pip shim already installs via `uv pip`, so both installers now behave the same. Use `install_uvshim.sh`.
 
 - `[target-dir]` is optional and defaults to `~/.local/bin`.
 - If the target dir does not exist, you are asked whether to create it.
@@ -115,6 +122,7 @@ On success you will see:
 
 ```
 🚀 Deploying global multi-platform uv shims into /home/<user>/.local/bin ...
+  ✅ Deployed: _uvshim_resolve
   ✅ Deployed: python
   ✅ Deployed: python3
   ✅ Deployed: pip
@@ -163,7 +171,7 @@ pip3 install "flask>=3.0"
 
 `pip` is automatically bound to the version behind `python` in the current context, so you never need to write `python -m pip` manually.
 
-Inside a virtualenv (activated, or a local `.venv`) the shim installs into that environment (using its own pip, or `uv pip`). Outside any environment it falls back to `uv tool` (isolated CLI environments) — e.g. `pip install podman-compose==1.6.0` becomes `uv tool install podman-compose==1.6.0`.
+`pip` installs via `uv pip` into the effective environment — an activated virtualenv, a project `.venv`, or the per-user base venv for a system Python. For a uv-managed base Python it falls back to `uv tool` (isolated CLI environments). Note that `uv tool` is only for CLI tools; install pure libraries into a venv.
 
 > Note: in shim mode it is **not** recommended to install into the system/uv global environment from an arbitrary directory. To isolate dependencies per project, create a virtualenv first:
 >
@@ -213,17 +221,11 @@ The uvpin query classifies the context into three kinds:
 
 ---
 
-## Choosing Between the Two pip Plans
+## pip Backends
 
-| | Plan A: `install_uvshim.sh` | Plan B: `install_uvshim_w_uvpip.sh` |
-| --- | --- | --- |
-| pip implementation | `exec "$SCRIPT_DIR/python" -m pip "$@"` | `exec "$REAL_UV" pip "$@"` |
-| Speed | normal | faster (native uv resolution) |
-| Version-switching logic | fully inherits the `python` shim's directory pin | relies on `uv pip`'s own environment resolution |
-| macOS + Homebrew | ✅ works | ⚠️ may fail to install into the target Python version |
-| Recommended for | compatibility first | Linux, when install speed matters |
+`pip` / `pip3` always install through `uv pip` into the effective environment — an activated virtualenv, a project `.venv`, or the per-user base venv for system Pythons. For a uv-managed base Python (no writable environment) it falls back to `uv tool`. Because `uv pip` binds to an explicit environment, this works on macOS + Homebrew too.
 
-> On **macOS + Homebrew + uv**, Plan B's `pip` may not install into the directory of the specified Python version. If you hit this, switch to Plan A (`install_uvshim.sh`).
+This supersedes the old "Plan A vs Plan B" split; `install_uvshim_w_uvpip.sh` is deprecated.
 
 ---
 
@@ -295,11 +297,9 @@ source .venv/bin/activate
 pip install <package>
 ```
 
-**Q: With Plan B, `pip --version` fails with `error: unexpected argument '--version' found`.**
+**Q: `pip --version` prints a uvshim notice instead of a pip version.**
 
-A: This is expected with Plan B (`install_uvshim_w_uvpip.sh`). The shim forwards `pip` straight to `uv pip`, and `uv pip` does not support the `--version` option, so it errors; this does not affect `pip install` and other commands.
-
-To avoid the error, switch to Plan A (`install_uvshim.sh`), whose `pip` goes through `python -m pip` and supports `--version`.
+A: The shim is backed by `uv pip` and does not use the `pip` package, so uvshim intercepts `pip --version` / `-V` and prints a short notice instead of letting `uv pip` error out. Other commands (`pip install`, `pip list`, ...) work normally via `uv pip`.
 
 ---
 
