@@ -108,8 +108,6 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/zh/instal
 ./install_uvshim.sh [目标目录]
 ```
 
-> `install_uvshim_w_uvpip.sh`（旧的「方案 B」）已弃用：当前 pip 垫片本就通过 `uv pip` 安装，两者行为已一致。请使用 `install_uvshim.sh`。
-
 - `[目标目录]` 可选，默认 `~/.local/bin`。
 - 目标目录不存在时会询问是否自动创建。
 - 查看帮助：
@@ -215,8 +213,6 @@ uvpin
 ## pip 后端
 
 `pip` / `pip3` 一律通过 `uv pip` 装进当前生效的环境——已激活的虚拟环境、项目 `.venv`，或系统 python 的用户级 base venv；对 uv 托管的 base python（无可写环境）则回退到 `uv tool`。由于 `uv pip` 绑定的是明确的环境，这在 macOS + Homebrew 下同样可用。
-
-这取代了旧的「方案 A / 方案 B」之分；`install_uvshim_w_uvpip.sh` 已弃用。
 
 ---
 

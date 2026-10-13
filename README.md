@@ -108,8 +108,6 @@ After cloning or downloading this repository:
 ./install_uvshim.sh [target-dir]
 ```
 
-> `install_uvshim_w_uvpip.sh` (the old "Plan B") is deprecated: the current pip shim already installs via `uv pip`, so both installers now behave the same. Use `install_uvshim.sh`.
-
 - `[target-dir]` is optional and defaults to `~/.local/bin`.
 - If the target dir does not exist, you are asked whether to create it.
 - Show help:
@@ -224,8 +222,6 @@ The uvpin query classifies the context into three kinds:
 ## pip Backends
 
 `pip` / `pip3` always install through `uv pip` into the effective environment — an activated virtualenv, a project `.venv`, or the per-user base venv for system Pythons. For a uv-managed base Python (no writable environment) it falls back to `uv tool`. Because `uv pip` binds to an explicit environment, this works on macOS + Homebrew too.
-
-This supersedes the old "Plan A vs Plan B" split; `install_uvshim_w_uvpip.sh` is deprecated.
 
 ---
 
