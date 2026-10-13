@@ -77,6 +77,20 @@ For the same safety reason, Ubuntu ships Python libraries as OS packages (`apt i
 
 Now put several `python` / `pip` executables on `PATH` (system, Homebrew, uv, venvs) and the problem compounds: the first `python` and the first `pip` may not belong together, so packages land in an environment the running Python never imports from. **This is the pain point uvshim solves.**
 
+### Why versions behave differently
+
+Because of PEP 668, every Python installation is a different world: some must be protected, others need to be extensible. Existing tools each fall short:
+
+- **pyenv's shims** can switch the interpreter, but do not address this at all.
+- **pipx / `uv tool`** install isolated CLI tools, but cannot install plain libraries.
+- **uv** can restrict itself to uv-managed Pythons — which either manages too few Pythons, or duplicates a system version into a redundant copy.
+
+uvshim's answer is to give a managed system Python a **base environment** that:
+
+- is independent of the system's (unwritable) environment,
+- can still use the packages already installed in the system environment,
+- and does not affect the isolation of a project's `.venv`.
+
 ### How It Works
 
 The installer deploys these files in the target directory (default `~/.local/bin`):
