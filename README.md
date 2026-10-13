@@ -176,7 +176,6 @@ On success you will see:
 
 ```
 🚀 Deploying global multi-platform uv shims into /home/<user>/.local/bin ...
-  ✅ Deployed: _uvshim_resolve
   ✅ Deployed: python
   ✅ Deployed: python3
   ✅ Deployed: pip

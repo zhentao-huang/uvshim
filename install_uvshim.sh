@@ -136,7 +136,6 @@ exit 0
 EOF
 
     chmod +x "$file_path"
-    echo "  ✅ Deployed: _uvshim_resolve"
 }
 
 # Generate the python and python3 shims

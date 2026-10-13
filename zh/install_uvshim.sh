@@ -134,7 +134,6 @@ exit 0
 EOF
 
     chmod +x "$file_path"
-    echo "  ✅ 已成功部署: _uvshim_resolve"
 }
 
 # 生成 python 和 python3 垫片

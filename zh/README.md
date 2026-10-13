@@ -175,7 +175,6 @@ curl -fsSL https://raw.githubusercontent.com/zhentao-huang/uvshim/main/zh/instal
 安装成功后会看到：
 
 ```
-✅ 已成功部署: _uvshim_resolve
 ✅ 已成功部署: python
 ✅ 已成功部署: python3
 ✅ 已成功部署: pip
