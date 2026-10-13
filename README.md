@@ -122,7 +122,7 @@ Resolution order: `VIRTUAL_ENV` → `uv python find` (project `.venv` / `.python
 It applies only to **system-managed** Pythons:
 
 1. Only system-managed Pythons (distro/Homebrew, marked externally-managed under PEP 668) get a base venv — you cannot install into them directly.
-2. uv-managed Pythons do not; uv manages their environments itself (project venvs, `uv add`, `uv tool`).
+2. uv-managed Pythons do not; uv manages their environments itself (a venv via `uv venv` / `uv add`, or `uv tool`). `uv pip install` always needs a target environment — a venv, or the system interpreter via `--system` — which is why no base Python can be installed into directly.
 
 uvshim creates that base venv under:
 

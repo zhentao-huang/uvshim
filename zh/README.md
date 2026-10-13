@@ -122,7 +122,7 @@ uvshim 的应对是：为受管的系统 Python 提供一个**基础环境**，�
 它只针对**系统 managed**的 python：
 
 1. 只有系统 managed 的 python（发行版/Homebrew，带 PEP 668 外部管理标记）才会采用——它们无法直接安装。
-2. uv 自己 managed 的不会采用；uv 自己管理其环境（项目 venv、`uv add`、`uv tool`）。
+2. uv 自己 managed 的不会采用；uv 用自己的环境来管理它们（`uv venv` / `uv add` 建的 venv，或 `uv tool`）。而 `uv pip install` 总需要一个目标环境——venv，或用 `--system` 指向系统解释器——这也是任何 base python 都无法直接安装的原因。
 
 uvshim 为它创建的用户级 base venv 位于：
 
