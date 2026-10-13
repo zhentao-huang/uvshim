@@ -16,7 +16,7 @@
 ## 目录
 
 - [多版本 Python 的困局](#多版本-python-的困局)
-- [工作原理](#工作原理)
+- [原理和设计](#原理和设计)
 - [前置要求](#前置要求)
 - [安装](#安装)
 - [使用方法](#使用方法)
@@ -51,7 +51,33 @@
   - 卸载某个 pip 包后，系统里的工具怎么突然坏了？
   - 为什么常看到 "Defaulting to user installation…"，装到了 `~/.local` 而不是系统目录？
 
-## 工作原理
+## 原理和设计
+
+### 为什么用 uv —— 而不是只用 pyenv？
+
+uv 是一套现代、基于 Rust 的 Python 工具链。相比 pyenv，它明显更先进：
+
+- **快。** uv 安装预编译的 CPython，几秒完成；pyenv 要从源码编译每个 Python，慢，还依赖 C 工具链。
+- **一站式。** uv 还覆盖虚拟环境、包管理等；pyenv 只管解释器。
+- **各平台行为一致。** Linux / macOS / Windows 表现相同。
+
+但 uv 有一个关键缺口：**它没有 pyenv 垫片那样的、全局且上下文感知的 `python` / `pip`。**
+
+两者都不完美。于是我们以 uv 为基础来补全它的功能，本工具由此而生。
+
+### PEP 668 与「受管理」的环境
+
+现代的基础 Python 都受 [PEP 668](https://peps.python.org/pep-0668/) 保护：它们带 `EXTERNALLY-MANAGED` 标记，安装器除非被显式强制，否则拒绝改动。这覆盖：
+
+- **Ubuntu 系统自带的 Python**——由 `apt` 管理。系统本身依赖 Python，若让 pip 随意改动，可能破坏系统工具，所以安装是受限的。
+- **Homebrew 的 Python**——同样标记为受管理。
+- **uv 托管的 Python**——也一样。
+
+出于同样的安全考虑，Ubuntu 把 Python 库做成系统包（`apt install python3-*`），而不是放任 pip；`python3-pip` 也并非为系统 Python 服务——它主要用于虚拟环境，默认不安装，即便装了，往系统里装包仍会被拦。
+
+再叠加 `PATH` 上并存多个 `python` 与 `pip`（系统、Homebrew、uv、venv），问题就更复杂：先被搜索到的 `python` 与先被搜索到的 `pip` 可能根本不是一套，包被装进了运行中的 Python 从不 import 的环境。**这正是 uvshim 要解决的痛点。**
+
+### 工作原理
 
 安装脚本会在目标目录（默认 `~/.local/bin`）部署这些文件：
 

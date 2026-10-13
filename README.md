@@ -16,7 +16,7 @@ In a nutshell:
 ## Table of Contents
 
 - [The multi-Python dilemma](#the-multi-python-dilemma)
-- [How It Works](#how-it-works)
+- [Principles and Design](#principles-and-design)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -51,7 +51,33 @@ Managing several Python versions sounds simple until you actually try. Do any of
   - Uninstalling a pip package suddenly broke a system tool — why?
   - Why do I keep seeing "Defaulting to user installation…", installing into `~/.local` instead of the system directory?
 
-## How It Works
+## Principles and Design
+
+### Why uv — and why not just pyenv?
+
+uv is a modern, Rust-based Python toolchain. It is notably more advanced than pyenv:
+
+- **Speed.** uv installs prebuilt CPython in seconds; pyenv compiles each Python from source — slow, and it needs a C toolchain.
+- **All-in-one.** uv also covers virtualenvs, packages, and more — pyenv only manages interpreters.
+- **Consistent across platforms.** Linux / macOS / Windows behave the same.
+
+Yet uv has one important gap: **it lacks a global, context-aware `python` / `pip` like pyenv's shims.**
+
+Neither is perfect. So we build on uv's foundation to complete its functionality — that is uvshim.
+
+### The PEP 668 reality
+
+Modern base Pythons are guarded by [PEP 668](https://peps.python.org/pep-0668/): they carry an `EXTERNALLY-MANAGED` marker and refuse `pip install` unless explicitly forced. This covers:
+
+- **Ubuntu's system Python** — managed by `apt`. The OS itself depends on Python, so letting `pip` modify it risks breaking system tooling; installs are therefore restricted.
+- **Homebrew's Python** — likewise marked managed.
+- **uv's own Pythons** — marked managed as well.
+
+For the same safety reason, Ubuntu ships Python libraries as OS packages (`apt install python3-*`) instead of allowing `pip`. And `python3-pip` is not meant for the system Python: it mainly serves virtualenvs, is not installed by default, and even when present it still refuses system-wide installs.
+
+Now put several `python` / `pip` executables on `PATH` (system, Homebrew, uv, venvs) and the problem compounds: the first `python` and the first `pip` may not belong together, so packages land in an environment the running Python never imports from. **This is the pain point uvshim solves.**
+
+### How It Works
 
 The installer deploys these files in the target directory (default `~/.local/bin`):
 
