@@ -97,7 +97,7 @@ uvshim 的应对是：为每个受管的 Python 提供一个**基础环境**，�
 | --- | --- |
 | `python` / `python3` | 用 `uv python find` 解析解释器（尊重 `.python-version`、项目与虚拟环境）并执行 |
 | `pip` / `pip3` | 通过 `uv pip` 装进当前生效的环境 |
-| `uvpin` | 环境感知的版本锁定工具，替代裸用 `uv python pin` |
+| `uvpin` | 环境感知的版本锁定工具，替代 `uv python pin --global` |
 | `_uvshim_resolve` | 各垫片共用的内部辅助脚本，负责判定生效环境 |
 
 `python`、`pip` 垫片都委托给 `_uvshim_resolve`，它输出 `<模式> <路径>`：
@@ -218,7 +218,7 @@ pip3 install "flask>=3.0"
 
 ### uvpin
 
-`uvpin` 用来在一个命令里智能地锁定/查询当前上下文的 Python 版本，替代需要手动区分目录的 `uv python pin`。
+`uvpin` 用来在一个命令里智能地锁定/查询当前上下文的 Python 版本，替代 `uv python pin --global`。（注意：不加 `--global` 时 `uv python pin` 锁定的是当前**项目**，而非全局默认，差异很大。）
 
 ```sh
 uvpin                # 查看当前上下文生效的 Python 版本及来源

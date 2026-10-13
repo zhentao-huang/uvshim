@@ -25,7 +25,7 @@ show_install_help() {
     echo "📦 部署包含的文件:"
     echo "  - python / python3 : 通过 'uv python find' 解析解释器"
     echo "  - pip / pip3       : 通过 'uv pip' 安装包（装进 venv / 用户 base venv）"
-    echo "  - uvpin            : 上下文环境感知的 Python 版本一键锁定工具, 替代\`uv python pin\`"
+    echo "  - uvpin            : 上下文环境感知的 Python 版本一键锁定工具, 替代\`uv python pin --global\`"
     echo "  - _uvshim_resolve  : 内部辅助脚本，用于解析当前生效的环境"
     echo ""
     echo "💡 managed 的 python 会获得一个用户级 base venv，位于"

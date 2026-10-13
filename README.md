@@ -97,7 +97,7 @@ The installer deploys these files in the target directory (default `~/.local/bin
 | --- | --- |
 | `python` / `python3` | Resolve the interpreter with `uv python find` (respects `.python-version`, projects, and virtualenvs) and exec it |
 | `pip` / `pip3` | Install via `uv pip` into the effective environment |
-| `uvpin` | Context-aware version pinning tool, replacing bare `uv python pin` |
+| `uvpin` | Context-aware version pinning tool; replaces `uv python pin --global` |
 | `_uvshim_resolve` | Internal helper shared by the shims; picks the effective environment |
 
 The `python` and `pip` shims delegate to `_uvshim_resolve`, which prints `<mode> <path>`:
@@ -227,7 +227,7 @@ pip3 install "flask>=3.0"
 
 ### uvpin
 
-`uvpin` pins or queries the Python version for the current context in a single command, replacing the manual directory juggling of `uv python pin`.
+`uvpin` pins or queries the Python version for the current context in a single command, replacing `uv python pin --global`. (Without `--global`, `uv python pin` targets the current *project* instead of the global default — a difference that matters a lot.)
 
 ```sh
 uvpin                # show the effective Python version and its source

@@ -26,7 +26,7 @@ show_install_help() {
     echo "📦 Files deployed:"
     echo "  - python / python3 : resolve the interpreter via 'uv python find'"
     echo "  - pip / pip3       : install packages via 'uv pip' (into a venv / user base venv)"
-    echo "  - uvpin            : context-aware Python version pinning tool, replaces \`uv python pin\`"
+    echo "  - uvpin            : context-aware version pinning tool; replaces \`uv python pin --global\`"
     echo "  - _uvshim_resolve  : internal helper that resolves the effective environment"
     echo ""
     echo "💡 Managed Pythons get a per-user base venv under"
