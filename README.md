@@ -24,7 +24,7 @@
 
 Managing several Python versions sounds simple until you actually try. Do any of these sound familiar?
 
-- [Is there one unified, comprehensive tool to manage all the Pythons?](#why-uv--and-why-not-just-pyenv)
+- [Is there one unified, comprehensive tool to manage all the Pythons?](#why-uv--and-not-pyenv)
   - `uv` or `pyenv` — which should I use?
   - `uv-python-shims`, `pipx`, plain `uv`… each seems to solve only part of it. How do they fit together?
   - Why does none of them handle the OS, Homebrew, and uv-managed Pythons together?
@@ -44,7 +44,7 @@ Managing several Python versions sounds simple until you actually try. Do any of
 
 ## Principles and Design
 
-### Why uv — and why not just pyenv?
+### Why uv — and not pyenv?
 
 uv is a modern, Rust-based Python toolchain. It is notably more advanced than pyenv:
 
