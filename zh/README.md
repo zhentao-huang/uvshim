@@ -98,7 +98,7 @@ uvshim 的应对是：为受管的系统 Python 提供一个**基础环境**，�
 
 这个问题通常是环境配置造成的——最常见的是 `PATH` 中目录的先后顺序。uvshim 无法替你修改 shell 配置，所以它做了力所能及的事：在安装时检查垫片目录是否对 `python` / `python3` / `pip` / `pip3` 优先生效，若不是，就给出警告并建议如何调整 `PATH`。
 
-### 工作原理
+### 垫片设计
 
 安装脚本会在目标目录（默认 `~/.local/bin`）部署这些文件：
 
@@ -117,15 +117,20 @@ uvshim 的应对是：为受管的系统 Python 提供一个**基础环境**，�
 
 解析顺序：`VIRTUAL_ENV` → `uv python find`（项目 `.venv` / `.python-version`）→ 用户 base venv / tool / plain。
 
-### 系统 managed 的 python 会获得用户级 base venv
+### 用户级 base venv
 
-发行版/Homebrew 的 python 带外部管理标记（PEP 668），无法直接装包。为此 uvshim 会为它创建**用户级 base venv**，位于：
+它只针对**系统 managed**的 python：
+
+1. 只有系统 managed 的 python（发行版/Homebrew，带 PEP 668 外部管理标记）才会采用——它们无法直接安装。
+2. uv 自己 managed 的不会采用；uv 自己管理其环境（项目 venv、`uv add`、`uv tool`）。
+
+uvshim 为它创建的用户级 base venv 位于：
 
 ```
 ~/.local/share/uvshim/base-venvs/<key>
 ```
 
-（`<key>` 由 base python 的真实路径得到）。包和工具都装进它，系统 python 不受影响。base venv 以 `--system-site-packages` 创建，因此系统安装的 Python 包（如 Debian 的 `dist-packages`）仍可 import。uv 托管的 python 不建 base venv，其安装走 `uv tool`。
+（`<key>` 由 base python 的真实路径得到，即每个安装对应一个 base venv）。包和工具都装进它，系统 python 不受影响。它以 `--system-site-packages` 创建，因此系统安装的 Python 包（如 Debian 的 `dist-packages`）仍可 import。
 
 > base venv 按需创建（由垫片创建，切换 python 时 `uvpin` 也会创建）。它**不会**在 shell 里被激活，因此不与项目虚拟环境冲突：项目 `.venv` 激活时优先，`deactivate` 后回落到垫片（进而用 base venv）。
 
@@ -209,7 +214,7 @@ python3 script.py
 行为规则：
 
 1. **有已激活的虚拟环境**时，直接使用该环境内的 Python（`$VIRTUAL_ENV/bin/python`）。
-2. **否则**用 `uv python find` 解析解释器（尊重项目 `.venv` 与 `.python-version`）。若解析到系统 managed 的 base python，则使用它的**用户级 base venv**（见[工作原理](#工作原理)）。
+2. **否则**用 `uv python find` 解析解释器（尊重项目 `.venv` 与 `.python-version`）。若解析到系统 managed 的 base python，则使用它的**用户级 base venv**（见[垫片设计](#垫片设计)）。
 
 ### pip / pip3
 

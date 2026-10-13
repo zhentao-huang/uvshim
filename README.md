@@ -98,7 +98,7 @@ uvshim's answer is to give a managed system Python a **base environment** that:
 
 This one is usually caused by environment configuration — most commonly the ordering of directories in `PATH`. uvshim cannot rewrite your shell configuration for you, so it does what it can: during installation it checks whether the shim directory actually takes effect first for `python` / `python3` / `pip` / `pip3`, and if not, prints a warning and suggests how to fix `PATH`.
 
-### How It Works
+### Shim Design
 
 The installer deploys these files in the target directory (default `~/.local/bin`):
 
@@ -117,15 +117,20 @@ The `python` and `pip` shims delegate to `_uvshim_resolve`, which prints `<mode>
 
 Resolution order: `VIRTUAL_ENV` → `uv python find` (project `.venv` / `.python-version`) → per-user base venv / tool / plain.
 
-### System-managed Pythons get a user base venv
+### User-level base venv
 
-Distro/Homebrew Pythons are marked externally-managed (PEP 668), so packages cannot be installed into them directly. For those, uvshim creates a **per-user base venv** under:
+It applies only to **system-managed** Pythons:
+
+1. Only system-managed Pythons (distro/Homebrew, marked externally-managed under PEP 668) get a base venv — you cannot install into them directly.
+2. uv-managed Pythons do not; uv manages their environments itself (project venvs, `uv add`, `uv tool`).
+
+uvshim creates that base venv under:
 
 ```
 ~/.local/share/uvshim/base-venvs/<key>
 ```
 
-(keyed by the base Python's real path). Packages and tools install there, so the system Python stays untouched. The base venv is created with `--system-site-packages`, so OS-installed Python packages (e.g. Debian's `dist-packages`) remain importable. uv-managed Pythons are not given a base venv; their installs go to `uv tool`.
+(`<key>` is derived from the base Python's real path, i.e. one base venv per installation). Packages and tools install there, so the system Python stays untouched. It is created with `--system-site-packages`, so OS-installed Python packages (e.g. Debian's `dist-packages`) remain importable.
 
 > The base venv is created on demand (by the shims, and by `uvpin` when you switch Python). It is never "activated" in your shell, so it does not interfere with project virtualenvs: activating a project `.venv` takes precedence, and `deactivate` falls back to the shim (which then uses the base venv).
 
@@ -210,7 +215,7 @@ python3 script.py
 Rules:
 
 1. **With an active virtualenv**, the environment's Python is used directly (`$VIRTUAL_ENV/bin/python`).
-2. **Otherwise** the interpreter is resolved with `uv python find` (which respects a project `.venv` and `.python-version`). If it resolves to a system-managed base Python, its **user base venv** is used (see [How It Works](#how-it-works)).
+2. **Otherwise** the interpreter is resolved with `uv python find` (which respects a project `.venv` and `.python-version`). If it resolves to a system-managed base Python, its **user base venv** is used (see [Shim Design](#shim-design)).
 
 ### pip / pip3
 
